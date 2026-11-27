@@ -7,14 +7,17 @@ import ts from "typescript";
 
 // Runs the real casual-worker provisioning with closed dependency boundaries:
 // no live database, credentials or HTTP transport enter the VM.
-async function harness({ master = false, failAfter = "", provisioning = { first_name: "Кристина", last_name: "Мелконян" } as Record<string, unknown> } = {}) {
+async function harness({
+  master = false, failAfter = "", provisioning = { first_name: "Кристина", last_name: "Мелконян" } as Record<string, unknown>,
+  name = "", linkedId = null as number | null, existing = [] as Record<string, unknown>[],
+} = {}) {
   const writes: string[] = [];
-  const employees: Record<string, unknown>[] = [{ id: 1, pin: "1234", firstName: "Александр", lastName: "Павлов" }];
+  const employees: Record<string, unknown>[] = [{ id: 1, pin: "1234", firstName: "Александр", lastName: "Павлов" }, ...existing];
   const stores = new Map<number, Record<string, unknown>[]>();
   let fail = failAfter, leased = false;
   const row = {
-    id: "casual-qa", account_id: "account-qa", venue_id: "venue-qa", role_id: "role-qa", model_id: "model-qa",
-    quickresto_id: null as number | null, quickresto_pin: null as string | null,
+    id: "casual-qa", account_id: "account-qa", venue_id: "venue-qa", name, role_id: "role-qa", model_id: "model-qa",
+    quickresto_id: linkedId, quickresto_pin: null as string | null,
     provisioning: structuredClone(provisioning) as Record<string, unknown>,
   };
   const interrupt = (key: string) => { if (fail === key) { fail = ""; throw new Error("Connection lost after remote commit"); } };
@@ -100,6 +103,7 @@ async function harness({ master = false, failAfter = "", provisioning = { first_
     const sourceModule = new vm.SourceTextModule(code, { context });
     await sourceModule.link(async (spec) => {
       if (spec === "../candidates/provision-state") return load("../candidates/provision-state.ts");
+      if (spec === "./casual-name") return load("./casual-name.ts");
       assert.ok(spec in modules, `Forbidden dependency: ${spec}`);
       const exports = modules[spec];
       return new vm.SyntheticModule(Object.keys(exports), function () { for (const [key, value] of Object.entries(exports)) this.setExport(key, value); }, { context });
@@ -144,4 +148,39 @@ test("no name: nothing is written to Quick Resto", async () => {
   const h = await harness({ provisioning: {} });
   await assert.rejects(h.run(), /имя и фамилию/);
   assert.deepEqual(h.writes, []);
+});
+
+// Перенесён из Quick Resto до того, как Sheerly выдавал коды: запись связана со
+// старым, уже удалённым сотрудником кассы, а имя в журнал заведения не попало.
+test("linked to a deleted Quick Resto employee: a new employee is created under the saved name", async () => {
+  const h = await harness({
+    provisioning: {}, name: "Кристина Мелконян", linkedId: 112,
+    existing: [{ id: 112, pin: "5555", firstName: "Кристина", lastName: "Мелконян", deleted: true }],
+  });
+  const { pin } = await h.run();
+  assert.deepEqual(h.writes, ["employee", "store_1"]);
+  assert.equal(h.row.quickresto_id, 101);
+  assert.equal(h.row.quickresto_pin, pin);
+  assert.notEqual(pin, "5555");
+});
+
+test("linked to a live Quick Resto employee: its PIN is reused, nothing is created", async () => {
+  const h = await harness({
+    provisioning: {}, name: "Кристина Мелконян", linkedId: 112,
+    existing: [{ id: 112, pin: "5555", firstName: "Кристина", lastName: "Мелконян", deleted: false }],
+  });
+  const { pin } = await h.run();
+  assert.equal(pin, "5555");
+  assert.deepEqual(h.writes, ["store_1"]);
+  assert.equal(h.row.quickresto_id, 112);
+});
+
+test("linked to a live Quick Resto employee without a readable PIN: no duplicate is created", async () => {
+  const h = await harness({
+    provisioning: {}, name: "Кристина Мелконян", linkedId: 112,
+    existing: [{ id: 112, firstName: "Кристина", lastName: "Мелконян", deleted: false }],
+  });
+  await assert.rejects(h.run(), /Не удалось прочитать PIN/);
+  assert.deepEqual(h.writes, []);
+  assert.equal(h.row.quickresto_id, 112);
 });

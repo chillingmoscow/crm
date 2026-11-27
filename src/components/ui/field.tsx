@@ -86,7 +86,10 @@ export function Field({
   const describedBy = [hintId, errorId].filter(Boolean).join(" ") || undefined;
 
   return (
-    <div className={cn("grid min-w-0 gap-2", className)}>
+    // content-start: в двухколоночной форме поле растягивается по высоте
+    // соседа с подсказкой, и без него сетка раздавала лишнее место между
+    // подписью и контролом — поля «съезжали» относительно друг друга.
+    <div className={cn("grid min-w-0 content-start gap-2", className)}>
       <Label htmlFor={id}>
         {label}
         {required && <RequiredMark />}

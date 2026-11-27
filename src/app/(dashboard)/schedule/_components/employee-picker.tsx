@@ -52,8 +52,11 @@ export function employeeOptions(
       disabled: busy(s.user_id),
       disabledHint: busy(s.user_id) ? "уже в расписании" : undefined,
     }));
-  const casuals = data.casualEmployees ?? [];
   const keep = value?.startsWith("payroll:") ? [value.slice(8)] : [];
+  // Переведённый в штат разовый остаётся в справочнике только ради подписи
+  // прошлых смен — в выборе его нет (кроме уже стоящего на этой смене),
+  // назначают штатного.
+  const casuals = (data.casualEmployees ?? []).filter((e) => !e.staff_user_id || keep.includes(e.id));
   const split = splitCasualEmployees({
     employees: includeCasual ? casuals : casuals.filter((e) => keep.includes(e.id)),
     today: dateInZone(new Date(), data.timezone),

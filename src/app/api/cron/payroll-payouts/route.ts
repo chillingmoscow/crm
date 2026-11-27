@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 
 import { runPayoutAuto } from "@/lib/payroll/payout-auto";
+import { runPayoutDrafts } from "@/lib/payroll/payout-draft";
 
 /**
  * POST /api/cron/payroll-payouts
@@ -10,6 +11,9 @@ import { runPayoutAuto } from "@/lib/payroll/payout-auto";
  * Москве (`scripts/crm-payroll-payouts.sh`). Для заведений, где автовыдача
  * включена в «Графике выплат», — строки плана на сегодня: кассы Quick Resto,
  * распределение, проведение с кэшбокса, сообщение в чат менеджеров.
+ *
+ * Сначала — черновик плана на текущий период, если его ещё не было, и
+ * уведомление тем, у кого есть право на выплаты (`runPayoutDrafts`).
  *
  * Идемпотентность: ключ выдачи — план + день. Повторный запуск в тот же день
  * находит выдачу по ключу и только досылает сообщение, если оно не ушло.
@@ -28,12 +32,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   try {
+    // Черновики — до выдачи: сбой черновика не мешает выдаче по утверждённым планам.
+    const drafts = await runPayoutDrafts().catch((e: unknown) => {
+      console.error(`[payroll-payouts] черновики: ${e instanceof Error ? e.message : "unknown"}`);
+      return [{ venueId: "*", outcome: "error" as const, reason: "drafts failed" }];
+    });
     const results = await runPayoutAuto();
     // 500 — что-то требует человека, а отчёт до чата отчётов не дошёл, или запуск упал:
     // лог хоста и мониторинг должны это заметить.
-    const unseen = results.some((r) => r.outcome === "error" || (r.attention && r.reportSent === false));
-    if (unseen) console.error("[payroll-payouts] требуется внимание:", JSON.stringify(results));
-    return NextResponse.json({ results, timestamp: new Date().toISOString() }, { status: unseen ? 500 : 200 });
+    const unseen =
+      drafts.some((d) => d.outcome === "error") ||
+      results.some((r) => r.outcome === "error" || (r.attention && r.reportSent === false));
+    if (unseen) console.error("[payroll-payouts] требуется внимание:", JSON.stringify({ drafts, results }));
+    return NextResponse.json({ drafts, results, timestamp: new Date().toISOString() }, { status: unseen ? 500 : 200 });
   } catch (e) {
     const message = e instanceof Error ? e.message : "unknown";
     console.error(`[payroll-payouts] ${message}`);

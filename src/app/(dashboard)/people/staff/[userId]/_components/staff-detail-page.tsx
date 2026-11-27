@@ -2,6 +2,7 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -41,6 +42,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Input } from "@/components/ui/input";
 import { PhoneInput } from "@/components/ui/phone-input";
@@ -85,11 +87,9 @@ import {
   restoreStaff,
   setImportedStaffEmailAndInvite,
   updateStaffProfile,
-  updateStaffAccountDetails,
-  updateStaffTerminalPin,
-  updateStaffRole,
   changeStaffDocument,
 } from "../../actions";
+import { saveStaffCard, type StaffCardChanges } from "../save-actions";
 import type { StaffProfile, StaffAccountDetails } from "../../actions";
 import type { OfficialEmploymentData } from "../../official-actions";
 import type { ActionResult } from "@/lib/actions/result";
@@ -152,6 +152,7 @@ interface Props {
   roleCode: string;
   departmentId: string | null;
   departmentName: string | null;
+  /** null и без права people.edit_staff: PIN виден только с этим правом. */
   terminalPin: string | null;
   venueId: string;
   roles: Role[];
@@ -160,6 +161,8 @@ interface Props {
   firedAt: string | null;
   firedReason: string | null;
   isMe: boolean;
+  /** Сотрудник — владелец аккаунта: уволить его нельзя. */
+  isAccountOwner: boolean;
   importedFromQuickResto: boolean;
   joinedAt: string | null;
   userCreatedAt: string | null;
@@ -189,10 +192,6 @@ interface Props {
   /** Показывать ли вкладку «Оплата»: право на зарплату или своя карточка. */
   canViewPay: boolean;
   initialTab?: "main" | "documents" | "pay";
-  initialAuditEvents: AuditEvent[];
-  initialAuditHasMore: boolean;
-  initialActivityEvents: AuditEvent[];
-  initialActivityHasMore: boolean;
   /** Куда ведёт хлебная крошка «назад». По умолчанию — список сотрудников.
    *  Может переопределяться контекстом перехода (например, из акта
    *  инвентаризации через ?from=inventory). */
@@ -211,6 +210,77 @@ const STAFF_JOURNAL_SECTIONS = [
   { value: "payroll_uniform", label: "Рабочая форма" },
   { value: "payroll_official_employment", label: "Официальное трудоустройство" },
 ];
+
+type JournalKind = "history" | "activity";
+type JournalPage = { events: AuditEvent[]; hasMore: boolean };
+type JournalState = { page: JournalPage | null; failed: boolean };
+const EMPTY_JOURNAL: JournalState = { page: null, failed: false };
+
+/** Та же лента: фоновое обновление не пересоздаёт её и не сбрасывает фильтры. */
+function sameJournalPage(prev: JournalPage | null, next: JournalPage) {
+  return (
+    prev !== null &&
+    prev.hasMore === next.hasMore &&
+    prev.events.length === next.events.length &&
+    prev.events.every((event, i) => event.id === next.events[i]?.id)
+  );
+}
+
+/** Первая загрузка ленты — скелетон по форме (фильтры, день, строки
+ *  событий); ошибка — блок с повтором. */
+function JournalPlaceholder({
+  failed,
+  onRetry,
+}: {
+  failed: boolean;
+  onRetry: () => void;
+}) {
+  if (failed) {
+    return (
+      <div className="mx-auto w-full max-w-[720px]">
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive"
+        >
+          Не удалось загрузить события
+          <Button type="button" size="sm" variant="outline" onClick={onRetry}>
+            <RotateCcw className="mr-2 size-3.5" />
+            Повторить
+          </Button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div
+      className="mx-auto flex w-full max-w-[720px] flex-col gap-4"
+      aria-busy
+      aria-label="Загружаем события"
+    >
+      <div className="flex gap-2">
+        <Skeleton className="h-8 w-28 rounded-full" />
+        <Skeleton className="h-8 w-24 rounded-full" />
+      </div>
+      <div className="flex flex-col gap-2">
+        <Skeleton className="mx-1 h-4 w-24" />
+        <ul className="flex flex-col overflow-hidden rounded-[14px] border bg-card">
+          {[0, 1, 2, 3].map((i) => (
+            <li
+              key={i}
+              className="flex items-start gap-3 border-b px-4 py-3 last:border-b-0"
+            >
+              <Skeleton className="mt-0.5 size-8 shrink-0 rounded-full" />
+              <div className="flex min-w-0 flex-1 flex-col gap-2 pt-1">
+                <Skeleton className="h-4 w-3/4 max-w-full" />
+                <Skeleton className="h-3 w-24" />
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
 
 // ── Component ─────────────────────────────────────────────────
 
@@ -238,6 +308,7 @@ export function StaffDetailPage({
   firedAt,
   firedReason,
   isMe,
+  isAccountOwner,
   importedFromQuickResto,
   joinedAt,
   userCreatedAt,
@@ -250,10 +321,6 @@ export function StaffDetailPage({
   officialTermination = null,
   canViewPay,
   initialTab = "main",
-  initialAuditEvents,
-  initialAuditHasMore,
-  initialActivityEvents,
-  initialActivityHasMore,
   backHref = "/people/staff",
   backLabel = "Сотрудники",
 }: Props) {
@@ -261,17 +328,54 @@ export function StaffDetailPage({
   const [activeTab, setActiveTab] = useState<TabKey>(
     initialTab === "pay" && !canViewPay ? "main" : initialTab,
   );
-  const [documentAudit, setDocumentAudit] = useState<{
-    events: AuditEvent[];
-    hasMore: boolean;
-  } | null>(null);
+  // «Журнал» и «Активность» грузятся при открытии вкладки, а не в рендере
+  // карточки: первая загрузка — скелетон, повторное открытие показывает
+  // прежнюю ленту сразу и тихо обновляет её в фоне.
+  const [journal, setJournal] = useState<Record<JournalKind, JournalState>>({
+    history: EMPTY_JOURNAL,
+    activity: EMPTY_JOURNAL,
+  });
+  const journalRequest = useRef<Record<JournalKind, number>>({
+    history: 0,
+    activity: 0,
+  });
+  const loadJournal = useCallback(
+    (kind: JournalKind) => {
+      if (!canViewAudit) return;
+      const id = ++journalRequest.current[kind];
+      const settle = (next: (prev: JournalState) => JournalState) => {
+        if (id !== journalRequest.current[kind]) return;
+        setJournal((all) => {
+          const value = next(all[kind]);
+          return value === all[kind] ? all : { ...all, [kind]: value };
+        });
+      };
+      // Ошибка видна, только если показать нечего; иначе остаётся прежняя лента.
+      const fail = () =>
+        settle((prev) => (prev.page ? prev : { page: null, failed: true }));
+      settle((prev) => (prev.failed ? { page: null, failed: false } : prev));
+      listAuditEvents(
+        kind === "history"
+          ? { entityType: "staff", entityId: profile.id }
+          : { filterGroups: [{ actorIds: [profile.id] }] },
+      )
+        .then((result) => {
+          if (result.error) return fail();
+          settle((prev) =>
+            sameJournalPage(prev.page, result)
+              ? prev
+              : { page: { events: result.events, hasMore: result.hasMore }, failed: false },
+          );
+        })
+        .catch(fail);
+    },
+    [canViewAudit, profile.id],
+  );
+  // Документы, оплата и сохранение карточки пишут в журнал: открытую ленту
+  // обновляем, закрытая обновится при следующем открытии.
   const refreshDocumentHistory = () => {
-    if (canViewAudit)
-      void listAuditEvents({ entityType: "staff", entityId: profile.id }).then(
-        (result) => {
-          if (!result.error) setDocumentAudit(result);
-        },
-      );
+    if (activeTab === "history" || activeTab === "activity")
+      loadJournal(activeTab);
   };
   const [avatarUrl, setAvatarUrl] = useState<string | null>(profile.avatar_url);
   const [passportPhotos, setPassportPhotos] = useState<string[]>(
@@ -373,8 +477,13 @@ export function StaffDetailPage({
   const canEditPersonal = canEdit && !isRegisteredUser;
 
   // «Опасная зона» показывается, только когда увольнение доступно: уволенного
-  // уволить нельзя, себя тоже.
-  const canFire = canEdit && !isMe;
+  // уволить нельзя, себя тоже, владельца аккаунта — тоже (база откажет).
+  const canFire = canEdit && !isMe && !isAccountOwner;
+
+  // PIN терминала видит и меняет только тот, кто может редактировать
+  // сотрудников (то же правило, что в списке). Сервер без этого права PIN
+  // в карточку не передаёт.
+  const canSeePin = canManageStaff;
 
   const {
     register,
@@ -382,7 +491,7 @@ export function StaffDetailPage({
     control,
     reset,
     watch,
-    formState: { errors, isDirty },
+    formState: { errors, isDirty, dirtyFields },
   } = useForm<FormValues>({
     resolver: zodResolver(canEditPersonal ? personalSchema : schema),
     defaultValues: {
@@ -495,65 +604,68 @@ export function StaffDetailPage({
 
   const watchedRoleId = watch("role_id");
 
-  // Save: параллельные action'ы.
-  // - updateStaffProfile — личные поля (тир 1+2)
-  // - updateStaffAccountDetails — HR-данные аккаунта (тир 3)
-  // - updateStaffTerminalPin — UVR (venue-specific)
-  // - updateStaffRole — UVR.role_id, только если должность реально изменилась
-  //   и текущая роль не owner (owner через staff-UI не переназначается).
-  // Если упал хоть один, показываем toast и не делаем общий «Сохранено».
+  // Save: одна команда saveStaffCard получает только изменённые части
+  // (личные поля — если их правит админ, данные аккаунта, PIN, должность —
+  // если она реально изменилась и это не owner) и пишет их на сервере
+  // параллельно. Свежие данные карточки приходят в ответе действия
+  // (revalidatePath), отдельный router.refresh() не нужен.
+  // Если упала хоть одна часть, показываем toast и не делаем общий «Сохранено».
   // Сохраняет полоса внизу колонки (SaveBar): она видна, пока форма
   // отличается от сохранённой.
   const persistMain = async (values: FormValues): Promise<boolean> => {
-    setSavingMain(true);
-    try {
-      // Личные поля пишем только если у нас на это есть право (placeholder-юзер).
-      // Иначе их обновляет сам сотрудник через свой профиль.
-      const profilePromise = canEditPersonal
-        ? updateStaffProfile(profile.id, {
-            first_name: values.first_name,
-            last_name: values.last_name,
-            phone: values.phone || null,
-            telegram_id: values.telegram_id || null,
-            gender: values.gender as Gender,
-            birth_date: values.birth_date || null,
-            address: values.address || null,
-          })
-        : Promise.resolve({ error: null });
+    const changed = (field: keyof FormValues) => Boolean(dirtyFields[field]);
+    const changes: StaffCardChanges = { userId: profile.id, uvrId };
 
-      const rolePromise =
-        canEditRole && values.role_id !== roleId
-          ? updateStaffRole(uvrId, values.role_id, roleValidFrom)
-          : Promise.resolve({ error: null, notice: null as string | null });
+    // Личные поля пишем только если у нас на это есть право (placeholder-юзер).
+    // Иначе их обновляет сам сотрудник через свой профиль.
+    if (canEditPersonal) {
+      const personal: NonNullable<StaffCardChanges["profile"]> = {};
+      if (changed("first_name")) personal.first_name = values.first_name;
+      if (changed("last_name")) personal.last_name = values.last_name;
+      if (changed("phone")) personal.phone = values.phone || null;
+      if (changed("telegram_id")) personal.telegram_id = values.telegram_id || null;
+      if (changed("gender")) personal.gender = values.gender as Gender;
+      if (changed("birth_date")) personal.birth_date = values.birth_date || null;
+      if (changed("address")) personal.address = values.address || null;
+      if (Object.keys(personal).length > 0) changes.profile = personal;
+    }
+    const details: NonNullable<StaffCardChanges["accountDetails"]> = {};
+    if (changed("employment_date")) details.employment_date = values.employment_date;
+    if (changed("comment")) details.comment = values.comment || null;
+    if (Object.keys(details).length > 0) changes.accountDetails = details;
+    if (canSeePin && changed("terminal_pin"))
+      changes.terminalPin = values.terminal_pin || null;
+    if (canEditRole && values.role_id !== roleId)
+      changes.role = { roleId: values.role_id, validFrom: roleValidFrom };
 
-      const [profileResult, detailsResult, pinResult, roleResult] =
-        await Promise.all([
-          profilePromise,
-          updateStaffAccountDetails(profile.id, accountId, {
-            employment_date: values.employment_date,
-            comment: values.comment || null,
-          }),
-          updateStaffTerminalPin(uvrId, values.terminal_pin || null),
-          rolePromise,
-        ]);
-
-      const errors = [
-        profileResult.error,
-        detailsResult.error,
-        pinResult.error,
-        roleResult.error,
-      ].filter(Boolean) as string[];
-      if (errors.length > 0) {
-        toast.error(errors.join(" · "));
-        return false;
-      }
+    const saved = () => {
       // Сохранённые значения становятся исходными: полоса пропадает сразу,
       // не дожидаясь свежих данных с сервера.
       reset(values);
       setRoleValidFrom(venueToday);
+    };
+    if (
+      !changes.profile &&
+      !changes.accountDetails &&
+      changes.terminalPin === undefined &&
+      !changes.role
+    ) {
+      saved();
+      return true;
+    }
+
+    setSavingMain(true);
+    try {
+      const result = await saveStaffCard(changes);
+      if (result.error) {
+        toast.error(result.error);
+        return false;
+      }
+      saved();
       toast.success("Данные сохранены");
-      if (roleResult.notice) toast.warning(roleResult.notice);
-      router.refresh();
+      for (const notice of result.notices ?? []) toast.warning(notice);
+      // Журнал карточки уже открывали — обновим его тихо.
+      refreshDocumentHistory();
       return true;
     } catch {
       toast.error("Не удалось сохранить данные. Проверьте подключение и повторите");
@@ -926,6 +1038,7 @@ export function StaffDetailPage({
           value={activeTab}
           onValueChange={(v) => {
             if (v === "documents") setDocumentsVisited(true);
+            if (v === "history" || v === "activity") loadJournal(v);
             setActiveTab(v as TabKey);
           }}
         >
@@ -1328,21 +1441,23 @@ export function StaffDetailPage({
                       </p>
                     )}
                   </div>
-                  <div className="space-y-1.5">
-                    <Label
-                      htmlFor="terminal_pin"
-                      className="text-[13px] font-medium"
-                    >
-                      PIN терминала
-                    </Label>
-                    <Input
-                      id="terminal_pin"
-                      placeholder="Не задан"
-                      {...register("terminal_pin")}
-                      readOnly={!canEdit}
-                      className={!canEdit ? "bg-muted/50" : ""}
-                    />
-                  </div>
+                  {canSeePin && (
+                    <div className="space-y-1.5">
+                      <Label
+                        htmlFor="terminal_pin"
+                        className="text-[13px] font-medium"
+                      >
+                        PIN терминала
+                      </Label>
+                      <Input
+                        id="terminal_pin"
+                        placeholder="Не задан"
+                        {...register("terminal_pin")}
+                        readOnly={!canEdit}
+                        className={!canEdit ? "bg-muted/50" : ""}
+                      />
+                    </div>
+                  )}
                 </div>
                 {doorCode && <div className="border-t pt-4">{doorCode}</div>}
               </FormSection>
@@ -1546,28 +1661,42 @@ export function StaffDetailPage({
           {/* ── Журнал (что делали с этим сотрудником) ──────── */}
           {canViewAudit && (
             <TabsContent value="history">
-              <EntityAuditTab
-                mode="entity"
-                entityType="staff"
-                entityId={profile.id}
-                sections={STAFF_JOURNAL_SECTIONS}
-                canView={canViewAudit}
-                initialEvents={documentAudit?.events ?? initialAuditEvents}
-                initialHasMore={documentAudit?.hasMore ?? initialAuditHasMore}
-              />
+              {journal.history.page ? (
+                <EntityAuditTab
+                  mode="entity"
+                  entityType="staff"
+                  entityId={profile.id}
+                  sections={STAFF_JOURNAL_SECTIONS}
+                  canView={canViewAudit}
+                  initialEvents={journal.history.page.events}
+                  initialHasMore={journal.history.page.hasMore}
+                />
+              ) : (
+                <JournalPlaceholder
+                  failed={journal.history.failed}
+                  onRetry={() => loadJournal("history")}
+                />
+              )}
             </TabsContent>
           )}
 
           {/* ── Активность (что этот сотрудник делал сам) ────── */}
           {canViewAudit && (
             <TabsContent value="activity">
-              <EntityAuditTab
-                mode="actor"
-                actorId={profile.id}
-                canView={canViewAudit}
-                initialEvents={initialActivityEvents}
-                initialHasMore={initialActivityHasMore}
-              />
+              {journal.activity.page ? (
+                <EntityAuditTab
+                  mode="actor"
+                  actorId={profile.id}
+                  canView={canViewAudit}
+                  initialEvents={journal.activity.page.events}
+                  initialHasMore={journal.activity.page.hasMore}
+                />
+              ) : (
+                <JournalPlaceholder
+                  failed={journal.activity.failed}
+                  onRetry={() => loadJournal("activity")}
+                />
+              )}
             </TabsContent>
           )}
 

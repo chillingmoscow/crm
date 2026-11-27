@@ -55,6 +55,8 @@ type Busy = "post" | "skip" | null;
  * (окончательный расчёт, нет счёта или статьи, сотрудник уволен без даты
  * официального увольнения, прошлый месяц, который крон не провёл). Поля: на руки, оклад с налогом (досчитывается
  * от суммы на руки), расчётный счёт, дата; решения: провести или пропустить.
+ * Оформление «Платит агентство» — одна сумма «Получено через агентство» и
+ * дата: без счёта и налога.
  */
 export function OfficialMonthCard({ item, draft, onDraftChange, onResolved, banks, payDay, canResolve, today }: Props) {
   const [busy, setBusy] = useState<Busy>(null);
@@ -66,6 +68,7 @@ export function OfficialMonthCard({ item, draft, onDraftChange, onResolved, bank
   const copy = officialReviewCopy(item, today);
   const month = officialMonthName(item.month, today);
   const tax = officialTaxOf(draft.net, draft.gross);
+  const agency = item.agency;
 
   const patch = (next: OfficialReviewDraft, field: keyof OfficialDraftErrors) => {
     onDraftChange(next);
@@ -125,7 +128,7 @@ export function OfficialMonthCard({ item, draft, onDraftChange, onResolved, bank
       <div className="min-w-0 space-y-1">
         <h2 className="break-words text-xl font-semibold tracking-normal">{copy.title}</h2>
         <p className="text-[13px] text-muted-foreground">
-          Официальная часть · срок {formatDue(officialPayDate(item.month, payDay), today)}
+          {agency ? "Через агентство" : "Официальная часть"} · срок {formatDue(officialPayDate(item.month, payDay), today)}
         </p>
         <p className="pt-1 text-sm text-muted-foreground">{copy.hint}</p>
       </div>
@@ -137,12 +140,12 @@ export function OfficialMonthCard({ item, draft, onDraftChange, onResolved, bank
       ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="На руки" required error={errors.amount}>
+        <Field label={agency ? "Получено через агентство" : "На руки"} required error={errors.amount}>
           {(control) => (
             <AmountInput
               {...control}
               value={draft.net}
-              onChange={(net) => patch(withOfficialNet(draft, net), "amount")}
+              onChange={(net) => patch(agency ? { ...draft, net, gross: net } : withOfficialNet(draft, net), "amount")}
               currency="RUB"
               placeholder="0"
               inputClassName="text-xl font-semibold md:text-xl"
@@ -150,47 +153,51 @@ export function OfficialMonthCard({ item, draft, onDraftChange, onResolved, bank
             />
           )}
         </Field>
-        <Field
-          label="Оклад с налогом"
-          required
-          hint={
-            tax !== null && tax >= 0 ? (
-              <>
-                НДФЛ <Money value={tax} fraction="auto" />
-              </>
-            ) : (
-              "Посчитается от суммы на руки"
-            )
-          }
-        >
-          {(control) => (
-            <AmountInput
-              {...control}
-              value={draft.gross}
-              onChange={(gross) => patch(withOfficialGross(draft, gross), "amount")}
-              currency="RUB"
-              placeholder="0"
-              disabled={locked}
-            />
-          )}
-        </Field>
-        <Field
-          label="Расчётный счёт"
-          required
-          error={errors.bank}
-          hint={banks.length === 0 ? "Нет активных расчётных счетов в рублях" : undefined}
-        >
-          {(control) => (
-            <OptionSelect
-              {...control}
-              value={draft.bank_account_id}
-              onValueChange={(bank_account_id) => patch({ ...draft, bank_account_id }, "bank")}
-              options={bankOptions}
-              placeholder="Выберите счёт"
-              disabled={locked || banks.length === 0}
-            />
-          )}
-        </Field>
+        {!agency && (
+          <>
+            <Field
+              label="Оклад с налогом"
+              required
+              hint={
+                tax !== null && tax >= 0 ? (
+                  <>
+                    НДФЛ <Money value={tax} fraction="auto" />
+                  </>
+                ) : (
+                  "Посчитается от суммы на руки"
+                )
+              }
+            >
+              {(control) => (
+                <AmountInput
+                  {...control}
+                  value={draft.gross}
+                  onChange={(gross) => patch(withOfficialGross(draft, gross), "amount")}
+                  currency="RUB"
+                  placeholder="0"
+                  disabled={locked}
+                />
+              )}
+            </Field>
+            <Field
+              label="Расчётный счёт"
+              required
+              error={errors.bank}
+              hint={banks.length === 0 ? "Нет активных расчётных счетов в рублях" : undefined}
+            >
+              {(control) => (
+                <OptionSelect
+                  {...control}
+                  value={draft.bank_account_id}
+                  onValueChange={(bank_account_id) => patch({ ...draft, bank_account_id }, "bank")}
+                  options={bankOptions}
+                  placeholder="Выберите счёт"
+                  disabled={locked || banks.length === 0}
+                />
+              )}
+            </Field>
+          </>
+        )}
         <Field label="Дата выплаты" required error={errors.date}>
           {(control) => (
             <DatePicker

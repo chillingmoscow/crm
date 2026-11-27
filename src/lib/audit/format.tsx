@@ -52,6 +52,7 @@ import { payrollOfficialAuditSpecs } from "./payroll-official";
 import { payrollPayoutAuditSpecs } from "./payroll-payout";
 import { ChangeLines } from "./change-lines";
 import { countRu } from "@/lib/format/plural";
+import { monthLabel } from "@/lib/sales/format";
 
 /** Строки под событием «изменил(а) группы счетов». */
 function BankAccountGroupLines({ details }: { details: Record<string, unknown> }) {
@@ -99,6 +100,21 @@ function BankAccountGroupLines({ details }: { details: Record<string, unknown> }
 /** Заголовок KB-страницы в фразе события: кликабельная ссылка, если
  *  страница ещё существует и не в корзине; иначе — просто выделенный
  *  текст (как в бывшем KB-журнале, но без превью). */
+/** План продаж: «Ноябрь 2026 · 4 000 000 ₽ → 4 500 000 ₽». */
+function SalesPlanDetails({ details }: { details: Record<string, unknown> }) {
+  const month = String(details.month ?? "");
+  return (
+    <p className="text-xs text-muted-foreground">
+      {/^\d{4}-\d{2}/.test(month)
+        ? monthLabel(month).replace(/^./, (c) => c.toUpperCase())
+        : "Месяц"}{" "}
+      ·{" "}
+      {details.before != null && <>{formatAmount(details.before)} → </>}
+      {details.after != null ? formatAmount(details.after) : "без плана"}
+    </p>
+  );
+}
+
 function KbPageTitle({ event, text }: { event: AuditEvent; text: string }) {
   const label = `«${text || "Без названия"}»`;
   const e = event.entity;
@@ -570,6 +586,22 @@ const SPECS: Record<string, AuditEventSpec> = {
       </>
     ),
   },
+  "sales.plan.created": {
+    icon: Settings2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>задал(а) план продаж</>,
+    buildDetails: (e) => <SalesPlanDetails details={e.details} />,
+  },
+  "sales.plan.updated": {
+    icon: Settings2, iconClass: "text-brand bg-brand/10",
+    // До разведения кодов создание и удаление тоже писались как `updated`.
+    buildHeadline: (e) => <>{e.details.after == null ? "удалил(а) план продаж" : e.details.before == null ? "задал(а) план продаж" : "изменил(а) план продаж"}</>,
+    buildDetails: (e) => <SalesPlanDetails details={e.details} />,
+  },
+  "sales.plan.deleted": {
+    icon: Settings2, iconClass: "text-muted-foreground bg-muted",
+    buildHeadline: () => <>удалил(а) план продаж</>,
+    buildDetails: (e) => <SalesPlanDetails details={e.details} />,
+  },
   "sales.statistics.refresh_requested": {
     icon: RotateCcw, iconClass: "text-brand bg-brand/10",
     buildHeadline: () => <>запросил(а) обновление месячной статистики</>,
@@ -625,6 +657,11 @@ const SPECS: Record<string, AuditEventSpec> = {
     icon:Pencil,iconClass:"text-brand bg-brand/10",
     buildHeadline:e=><>изменил(а) участие в зарплатном учёте · {String(e.details.employee_name)}</>,
     buildDetails:e=><><ChangeLines details={e.details}/><p className="text-xs text-muted-foreground">{String(e.details.reason??"")}</p></>,
+  },
+  "payroll.employee.converted_to_staff": {
+    icon:Pencil,iconClass:"text-brand bg-brand/10",
+    buildHeadline:e=><>перевёл(а) разового в штат · {String(e.details.employee_name??"Сотрудник")}</>,
+    buildDetails:e=><p className="text-xs text-muted-foreground">Смены и начисления остались при сотруднике · будущих смен перенесено: {String(e.details.moved_shifts??0)}</p>,
   },
   "payroll.attendance_source.changed": {
     icon:Pencil,iconClass:"text-brand bg-brand/10",

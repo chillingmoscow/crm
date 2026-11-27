@@ -1,4 +1,6 @@
 "use server";
+import { payrollMonthRange } from "@/lib/payroll/month-range";
+import { slimOverviewAccrual } from "@/lib/payroll/accrual-slim";
 import { queuePayroll } from "@/lib/payroll/sync";
 import { normalizeOfficialExpected, type OfficialExpectedRow } from "@/lib/payroll/official-expected";
 import { attendanceReviewRows, needsAttendanceReview } from "@/lib/payroll/attendance-review-rows";
@@ -146,8 +148,13 @@ const EMPLOYEE_SKIPPED_TABLES = new Set([
 async function loadPayrollData(
   overview: boolean,
   employeeUserId?: string,
+  month?: string,
 ): Promise<PayrollData> {
   const s = await scope();
+  // Обзор одного месяца: начисления и журнал — только за него (это основной
+  // объём, ~2,5 МБ за полгода). Выплаты, разнесения и переносы небольшие и
+  // нужны форме выплаты за прошлые месяцы — их читаем целиком.
+  const monthRange = overview && month ? payrollMonthRange(month) : null;
   const manager = s.permissions.includes("payroll.view");
   const single = employeeUserId !== undefined;
   const employeesRequest = (async () => {
@@ -219,6 +226,8 @@ async function loadPayrollData(
           .eq("venue_id", s.venueId);
         if (single && EMPLOYEE_TABLES.has(key))
           query = query.eq("employee_id", employeeId);
+        if (monthRange && (key === "accruals" || key === "adjustments"))
+          query = query.gte("business_date", monthRange.from).lt("business_date", monthRange.until);
         const { data, error } = await query
           .order(key === "salaryLinks" ? "accrual_id" : key === "adeskSync" ? "payment_id" : "id")
           .range(start, start + 999);
@@ -248,6 +257,7 @@ async function loadPayrollData(
     PayrollData,
     keyof typeof tables
   >;
+  if (overview) result.accruals = result.accruals.map(slimOverviewAccrual);
   if (result.adjustments.length) {
     // Незаконченные возвраты бонусов, поставленные при удалении записи. Очередь
     // бонусных операций по RLS видна только настройщикам, а статус записи нужен
@@ -297,7 +307,7 @@ async function loadPayrollData(
     if (ids.length) {
       const r = await s.admin
         .from<Payment[]>("payroll_payments")
-        .select("id,kind,state,created_at,occurred_at,bonus_adjustment_id,official_month")
+        .select("id,kind,state,created_at,occurred_at,bonus_adjustment_id,official_month,agency")
         .eq("account_id", s.accountId)
         .eq("venue_id", s.venueId)
         .in("id", ids);
@@ -398,7 +408,7 @@ async function loadOfficialEmployments(
 ): Promise<NonNullable<PayrollData["officialEmployments"]>> {
   const r = await s.db
     .from<NonNullable<PayrollData["officialEmployments"]>>("payroll_official_employments")
-    .select("id,employee_id,starts_on,ends_on")
+    .select("id,employee_id,starts_on,ends_on,agency")
     .eq("account_id", s.accountId)
     .eq("venue_id", s.venueId)
     .is("archived_at", null)
@@ -820,12 +830,15 @@ const officialPaymentSchema = z
     month: z.string().regex(/^\d{4}-\d{2}-01$/, "Укажите месяц официальной выплаты"),
     gross: officialMoney,
     net: officialMoney,
-    bank_account_id: z.string().uuid("Выберите расчётный счёт"),
+    // Через агентство счёта нет (null); обычную официальную выплату без счёта не примет база.
+    bank_account_id: z.string().uuid("Выберите расчётный счёт").nullable(),
     date: z.string().datetime({ offset: true, message: "Укажите дату выплаты" }),
   })
   .refine((v) => Math.round(v.net * 100) <= Math.round(v.gross * 100), "Сумма на руки больше оклада с налогом");
 /**
  * Ручная официальная выплата: повтор после удаления или прошлые месяцы.
+ * Для оформления «Платит агентство» — запись «Получено через агентство»
+ * (сумма = на руки, без счёта).
  * Права (`payroll.pay` + `finance.create_transaction`), расчётный счёт и
  * «одна выплата за месяц» проверяет база; журнал пишет она же.
  */
@@ -1202,8 +1215,9 @@ async function setPayrollAttendanceSourceImpl(employeeId:string,source:"quickres
 export async function loadPayroll() {
   return actionResult(() => loadPayrollData(false), "Не удалось загрузить данные о зарплате");
 }
-export async function loadPayrollOverview() {
-  return actionResult(() => loadPayrollData(true), "Не удалось загрузить данные о зарплате");
+/** Обзор зарплаты. С месяцем («YYYY-MM») — начисления и журнал только за него; без — вся история (план выплат). */
+export async function loadPayrollOverview(month?: string) {
+  return actionResult(() => loadPayrollData(true, undefined, month), "Не удалось загрузить данные о зарплате");
 }
 export async function loadEmployeePayroll(userId: string) {
   return actionResult(() => loadEmployeePayrollImpl(userId), "Не удалось загрузить зарплату сотрудника");

@@ -1,20 +1,29 @@
 "use client";
 
+import { useExitValue } from "@/hooks/use-exit-value";
 import { AttendanceAttentionNotice } from "./attendance-attention";
 import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { useRouter } from "next/navigation";
 import {
+  ArrowRightLeft,
   ArrowUpRight,
+  Banknote,
   CalendarX2,
+  CircleMinus,
+  CirclePlus,
+  Download,
+  Gift,
   Users,
   Plus,
+  CalendarDays,
 } from "lucide-react";
 import {
   Dialog,
@@ -40,7 +49,13 @@ import {
 } from "@/app/(dashboard)/people/payroll/actions";
 import { unwrapAction } from "@/lib/actions/result";
 import { PayrollJournal, PayrollEntryForm, PayrollEntryMenuItems } from "./payroll-journal";
-import { PayrollTransferDrawer } from "./payroll-transfer-drawer";
+import { PayrollTransferDrawer, transferCandidates } from "./payroll-transfer-drawer";
+import { downloadPayslip } from "./payslip-download";
+import {
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+} from "@/components/ui/context-menu";
 import { PayoutPlan, cachedPayoutPlan, prefetchPayoutPlan } from "./payout-plan";
 import type { PayoutPlanView } from "../payout-actions";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
@@ -130,21 +145,44 @@ export function PayrollWorkspace({
   const [busy, setBusy] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
   const [entryOpen, setEntryOpen] = useState(false);
-  const [entryKind, setEntryKind] = useState<"deduction" | "allowance">("deduction");
+  const [entryKind, setEntryKind] = useState<"deduction" | "allowance" | "bonus">("deduction");
   const [transferOpen, setTransferOpen] = useState(false);
+  // Сотрудник, для которого форму открыли из меню строки ведомости;
+  // из кнопки «Добавить» — никто, выбирают в самой форме.
+  const [payFor, setPayFor] = useState<string | undefined>();
+  const [entryFor, setEntryFor] = useState<string | undefined>();
+  const [transferFor, setTransferFor] = useState<string | undefined>();
+  // Панель держим смонтированной, пока она уезжает (docs/motion.md).
+  const shownTransfer = useExitValue(transferOpen);
   const router = useRouter();
   const [cancelId, setCancelId] = useState<string | null>(null);
   const can = (action: string) =>
     data.permissions.includes(`payroll.${action}`);
+  // Данные грузятся по одному месяцу (начисления и журнал — только за него).
+  // month — месяц загруженных данных, shownMonth — выбранный в переключателе:
+  // пока новый месяц грузится, видны прежние цифры, приглушённые.
+  const [month, setMonth] = useState(initialMonth);
+  const [shownMonth, setShownMonth] = useState(initialMonth);
+  const wantedMonth = useRef(initialMonth);
+  // Уже показанные месяцы открываются сразу из памяти и тихо обновляются.
+  const monthCache = useRef(new Map<string, PayrollData>([[initialMonth, initial]]));
   const reload = useCallback(async () => {
-    const next = unwrapAction(await loadPayrollOverview());
-    if (next.venueId === initial.venueId) setData(next);
+    const wanted = wantedMonth.current;
+    const next = unwrapAction(await loadPayrollOverview(wanted));
+    if (next.venueId !== initial.venueId) return;
+    monthCache.current.set(wanted, next);
+    // Ответ за месяц, с которого уже ушли, не показываем.
+    if (wantedMonth.current !== wanted) return;
+    setData(next);
+    setMonth(wanted);
   }, [initial.venueId]);
   const autoRefresh = useAutoRefresh(reload, 15000);
   const run = async (fn: () => Promise<unknown>, message: string) => {
     setBusy(true);
     try {
       await fn();
+      // Действие могло задеть и другие месяцы (перенос, выплата за прошлый).
+      monthCache.current.clear();
       await reload();
       toast.success(message);
     } catch (error) {
@@ -157,7 +195,6 @@ export function PayrollWorkspace({
       setBusy(false);
     }
   };
-  const [month, setMonth] = useState(initialMonth);
   const [tab, setTab] = useState("statement");
   // «Обзор» (график и стоимость команды) по умолчанию открыт; если его закрыть,
   // это запоминается в браузере.
@@ -171,8 +208,10 @@ export function PayrollWorkspace({
     return () => { alive = false; };
   }, [initial.venueId, initial.permissions]);
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).has("entry"))
-      setTab("journal");
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("entry")) setTab("journal");
+    // Ссылка из уведомления о черновике плана выплат.
+    else if (params.get("tab") === "plan") setTab("plan");
   }, []);
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get("transfer");
@@ -199,6 +238,24 @@ export function PayrollWorkspace({
     const start = `${(data.settings?.starts_on ?? first ?? `${initialMonth}-01`).slice(0, 7)}-01`;
     return start < `${initialMonth}-01` ? start : `${initialMonth}-01`;
   }, [data.accruals, data.settings?.starts_on, initialMonth]);
+  // Предыдущий месяц — самый частый следующий шаг: подгружаем его заранее,
+  // чтобы стрелка «назад» открывала его сразу.
+  useEffect(() => {
+    const date = new Date(`${month}-01T12:00:00Z`);
+    date.setUTCMonth(date.getUTCMonth() - 1);
+    const previous = date.toISOString().slice(0, 7);
+    if (`${previous}-01` < minMonth || monthCache.current.has(previous)) return;
+    const timer = setTimeout(() => {
+      loadPayrollOverview(previous)
+        .then(unwrapAction)
+        .then((next) => {
+          if (next.venueId === initial.venueId && !monthCache.current.has(previous))
+            monthCache.current.set(previous, next);
+        })
+        .catch(() => undefined);
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [month, minMonth, initial.venueId]);
   const title = new Date(`${monthStart}T12:00:00Z`)
     .toLocaleDateString("ru-RU", {
       month: "long",
@@ -233,6 +290,10 @@ export function PayrollWorkspace({
   // вместо нулевого графика и пустой ведомости одно пустое состояние.
   const emptyMonth = tab === "statement" && active.length === 0;
   const planTab = tab === "plan";
+  const planMonthIso = planView?.plan?.month ?? planView?.window?.month ?? null;
+  const planMonth = planMonthIso
+    ? `${new Intl.DateTimeFormat("ru-RU", { month: "long", timeZone: "UTC" }).format(new Date(`${planMonthIso.slice(0, 7)}-01T12:00:00Z`))} ${planMonthIso.slice(0, 4)}`
+    : null;
   const paid = rows.reduce((sum, r) => sum + r.paid, 0);
   const tips = rows.reduce((sum, r) => sum + r.tips, 0);
   const shifts = rows.reduce((sum, r) => sum + r.shifts, 0);
@@ -374,24 +435,107 @@ export function PayrollWorkspace({
       toast.error(e instanceof Error ? e.message : "Не удалось пересчитать недостачу", { id });
     }
   };
+  const openPay = (employeeId?: string) => {
+    setPayFor(employeeId);
+    setPayOpen(true);
+  };
+  const openEntry = (kind: "deduction" | "allowance" | "bonus", employeeId?: string) => {
+    setEntryKind(kind);
+    setEntryFor(employeeId);
+    setEntryOpen(true);
+  };
+  const openTransfer = (employeeId?: string) => {
+    setTransferFor(employeeId);
+    setTransferOpen(true);
+  };
+  // Кому есть что переносить: пункт «Перенести остаток» только у них.
+  const transferable = useMemo(
+    () => new Set(transferCandidates(data, monthStart).map((e) => e.row.employee.id)),
+    [data, monthStart],
+  );
+  const savePayslip = async (employee: (typeof rows)[number]["employee"]) => {
+    const id = toast.loading("Формируем выписку…");
+    try {
+      await downloadPayslip(data, employee, monthStart);
+      toast.dismiss(id);
+    } catch {
+      toast.error("Не удалось сформировать выписку. Попробуйте ещё раз", { id });
+    }
+  };
+  /**
+   * Правый клик по строке ведомости: то же, что в «Добавить» и в расчёте
+   * сотрудника, но сразу для этого сотрудника. Пункты — по тем же правам,
+   * что и кнопки.
+   */
+  const statementRowMenu = (row: (typeof rows)[number]) => {
+    const id = row.employee.id;
+    // Премии, штрафы и надбавки начисляют только работающим: форма
+    // предлагает лишь их.
+    const canEntry = can("review") && row.employee.active;
+    const canTransfer = can("review") && transferable.has(id);
+    // Форма выплаты предлагает работающих и тех, у кого есть начисления за месяц.
+    const canPay = can("pay") && (
+      row.employee.active || data.accruals.some((a) => a.employee_id === id && a.business_date.startsWith(month))
+    );
+    return (
+      <>
+        <ContextMenuLabel>{row.employee.name}</ContextMenuLabel>
+        <ContextMenuItem onSelect={() => router.push(`/people/payroll/${id}?month=${month}`)}>
+          <ArrowUpRight />
+          Открыть расчёт
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => void savePayslip(row.employee)}>
+          <Download />
+          Скачать выписку
+        </ContextMenuItem>
+        {(canPay || canEntry || canTransfer) && <ContextMenuSeparator />}
+        {canPay && (
+          <ContextMenuItem disabled={busy} onSelect={() => openPay(id)}>
+            <Banknote />
+            Выплатить
+          </ContextMenuItem>
+        )}
+        {canEntry && (
+          <>
+            <ContextMenuItem onSelect={() => openEntry("bonus", id)}>
+              <Gift />
+              Начислить премию
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => openEntry("deduction", id)}>
+              <CircleMinus />
+              Добавить штраф
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => openEntry("allowance", id)}>
+              <CirclePlus />
+              Надбавка за месяц
+            </ContextMenuItem>
+          </>
+        )}
+        {canTransfer && (
+          <ContextMenuItem onSelect={() => openTransfer(id)}>
+            <ArrowRightLeft />
+            Перенести остаток на следующий месяц
+          </ContextMenuItem>
+        )}
+      </>
+    );
+  };
   const tableActions = tab === "statement" ? (
     (can("pay") || can("review") || canRecalculateShortage) && <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button size="sm" disabled={busy}><Plus size={16} />Добавить</Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
-        {can("pay") && <DropdownMenuItem onSelect={() => setPayOpen(true)}>Выплата</DropdownMenuItem>}
-        {can("review") && <PayrollEntryMenuItems onSelect={(kind) => {setEntryKind(kind);setEntryOpen(true);}}/>}
-        {can("review") && <><DropdownMenuSeparator /><DropdownMenuItem onSelect={() => {
-          setTransferOpen(true);
-        }}>Перенести остаток</DropdownMenuItem></>}
+        {can("pay") && <DropdownMenuItem onSelect={() => openPay()}>Выплата</DropdownMenuItem>}
+        {can("review") && <PayrollEntryMenuItems onSelect={(kind) => openEntry(kind)}/>}
+        {can("review") && <><DropdownMenuSeparator /><DropdownMenuItem onSelect={() => openTransfer()}>Перенести остаток</DropdownMenuItem></>}
         {canRecalculateShortage && <><DropdownMenuSeparator /><DropdownMenuItem onSelect={() => void recalculateShortage()}>
           Пересчитать недостачу за месяц
         </DropdownMenuItem></>}
       </DropdownMenuContent>
     </DropdownMenu>
   ) : tab === "payments" && can("pay") ? (
-    <Button size="sm" onClick={() => setPayOpen(true)} disabled={busy}>
+    <Button size="sm" onClick={() => openPay()} disabled={busy}>
       <Plus size={16} />Добавить выплату
     </Button>
   ) : null;
@@ -404,18 +548,28 @@ export function PayrollWorkspace({
     </TabsList>
   );
   const changeMonth = (value: string) => {
-    setMonth(value);
+    wantedMonth.current = value;
+    setShownMonth(value);
+    const cached = monthCache.current.get(value);
+    if (cached) {
+      setData(cached);
+      setMonth(value);
+    }
     setHoverDay(null);
     const url = new URL(window.location.href);
     url.searchParams.set("month", value);
     window.history.replaceState(null, "", url);
+    reload().catch((error: unknown) =>
+      toast.error(error instanceof Error ? error.message : "Не удалось загрузить месяц"),
+    );
   };
   const changeTab = (id: string) => {
     setTab(id);
     setQuery("");
   };
+  const monthLoading = shownMonth !== month;
   const moveMonth = (direction: number) => {
-    const date = new Date(`${monthStart}T12:00:00Z`);
+    const date = new Date(`${shownMonth}-01T12:00:00Z`);
     date.setUTCMonth(date.getUTCMonth() + direction);
     changeMonth(date.toISOString().slice(0, 7));
   };
@@ -497,11 +651,23 @@ export function PayrollWorkspace({
             <TablePageHeader
               className={s.pageHeader}
               title="Зарплата"
-              period={
+              period={planTab ? (
+                // План выплат всегда про текущую выплату: месяц видно, но не
+                // переключаем (Павел, 26.11).
+                planMonth && (
+                  <span
+                    className="inline-flex h-9 items-center gap-2 rounded-lg border border-brand/20 bg-brand/[0.06] px-3 text-[13px] font-medium text-brand"
+                    data-tip="Месяц плана выплат"
+                  >
+                    <CalendarDays size={15} aria-hidden />
+                    {planMonth}
+                  </span>
+                )
+              ) : (
                 <PeriodStepper
                   previous="Предыдущий месяц"
                   next="Следующий месяц"
-                  previousDisabled={monthStart <= minMonth}
+                  previousDisabled={`${shownMonth}-01` <= minMonth}
                   onPrevious={() => moveMonth(-1)}
                   onNext={() => moveMonth(1)}
                 >
@@ -511,17 +677,23 @@ export function PayrollWorkspace({
                     variant="period"
                     prefix=""
                     ariaLabel="Месяц ведомости"
-                    value={monthStart}
+                    value={`${shownMonth}-01`}
                     min={minMonth}
                     onChange={(value) => changeMonth(value.slice(0, 7))}
                   />
                 </PeriodStepper>
-              }
+              )}
               actions={
                 <div id="payroll-workspace-controls" className={s.functionalControls} />
               }
             />
-            <Tabs value={tab} onValueChange={changeTab} className={tabStyle.tabs}>
+            <Tabs
+              value={tab}
+              onValueChange={changeTab}
+              aria-busy={monthLoading || undefined}
+              // Пока грузится выбранный месяц, прежние цифры приглушены.
+              className={`${tabStyle.tabs} transition-opacity duration-150 ${monthLoading ? "pointer-events-none opacity-60" : ""}`}
+            >
             {/* Вкладки — сразу под шапкой: при переключении меняется всё ниже,
                 и итоги тоже. «Обзор» (график и стоимость команды) — справа в
                 строке вкладок, только на «Ведомости». */}
@@ -907,6 +1079,7 @@ export function PayrollWorkspace({
                   }
                   actions={tableActions}
                   filters={roleFilters}
+                  rowMenu={statementRowMenu}
                 />
               )}
             </section>}
@@ -915,9 +1088,10 @@ export function PayrollWorkspace({
           </PageFrame>
 
         </div>
-        <PayrollEntryForm initialKind={entryKind} open={entryOpen} onOpenChange={setEntryOpen} data={data} month={monthStart}
+        <PayrollEntryForm initialKind={entryKind} employeeId={entryFor} open={entryOpen} onOpenChange={setEntryOpen} data={data} month={monthStart}
           onCreated={async () => { await reload(); changeTab("journal"); }} />
-        {transferOpen && <PayrollTransferDrawer data={data} month={monthStart}
+        {shownTransfer && <PayrollTransferDrawer key={transferFor ?? "all"} open={transferOpen} data={data} month={monthStart}
+          employeeId={transferFor}
           onClose={() => setTransferOpen(false)} onChange={reload} />}
         <Dialog
           open={composition}
@@ -986,6 +1160,8 @@ export function PayrollWorkspace({
           }
         >
           <PayrollPaymentForm onCancel={() => setPayOpen(false)}
+            key={payFor ?? "all"}
+            initialEmployeeId={payFor}
             data={data}
             month={monthStart}
             onDone={async () => {
@@ -1013,14 +1189,14 @@ function PlanMetrics({ view }: { view: PayoutPlanView | null }) {
   const todaySum = todayRows.reduce((sum, r) => sum + r.amount - r.issued, 0);
   const window = view?.window;
   const state = view?.plan?.state === "approved" ? "утверждён" : view?.plan?.state === "draft" ? "черновик" : "не сформирован";
-  const title = window ? `Первая выплата за ${PLAN_MONTHS[Number(window.month.slice(5, 7)) - 1]}` : "План выплат";
+  const title = window ? `${view?.payoutNo === 2 ? "Вторая" : "Первая"} выплата за ${PLAN_MONTHS[Number(window.month.slice(5, 7)) - 1]}` : "План выплат";
   return (
     <MetricStrip label="Итоги плана выплат">
       <Metric
         primary
         label={title}
         value={<AnimatedMoney value={view ? total : null} />}
-        hint={window ? `${dm(window.from)} – ${dm(window.to)} · ${state}` : "Окно первой выплаты — с 25-го по 1-е"}
+        hint={window ? `${dm(window.from)} – ${dm(window.to)} · ${state}` : "План выплаты ещё не сформирован"}
       />
       <Metric
         label="Выдано"

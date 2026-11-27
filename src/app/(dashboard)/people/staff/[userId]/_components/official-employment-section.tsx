@@ -1,5 +1,6 @@
 "use client";
 
+import { useExitValue } from "@/hooks/use-exit-value";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -45,6 +46,8 @@ export function OfficialEmploymentSection({
   canAttachFiles: boolean;
 }) {
   const [panel, setPanel] = useState<Panel>(null);
+  // Панели и окна держим смонтированными, пока они уезжают (docs/motion.md).
+  const shownPanel = useExitValue(panel);
   const [contractUrl, setContractUrl] = useState<string | null>(null);
   const contractPath = data.ok ? data.data.employment?.contract_path ?? null : null;
 
@@ -83,8 +86,9 @@ export function OfficialEmploymentSection({
 
   const canEmploy = canEdit && employeeActive && (!employment || Boolean(employment.ends_on && employment.ends_on < today));
   const close = () => setPanel(null);
-  const employDrawer = panel === "employ" && (
+  const employDrawer = shownPanel === "employ" && (
     <OfficialEmploymentDrawer
+      open={panel === "employ"}
       mode="employ"
       employeeId={employeeId}
       defaultStartsOn={today}
@@ -111,8 +115,9 @@ export function OfficialEmploymentSection({
 
   const { current, next } = officialSalaryOn(salaries, today);
   const contract = contractLabel(employment.contract_number, employment.contract_date);
+  const agency = employment.agency;
   const actions: TableRowMenuAction[] = [
-    { label: "Изменить оклад", onSelect: () => setPanel("salary") },
+    { label: agency ? "Изменить сумму в месяц" : "Изменить оклад", onSelect: () => setPanel("salary") },
     { label: "Исправить данные", onSelect: () => setPanel("edit") },
     { label: "Уволить официально", onSelect: () => setPanel("end") },
     ...(canEmploy ? [{ label: "Оформить официально", onSelect: () => setPanel("employ"), separatorBefore: true }] : []),
@@ -126,6 +131,7 @@ export function OfficialEmploymentSection({
     >
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <p className="text-sm">Оформлен с {formatDayMonth(employment.starts_on)}</p>
+        {agency && <StatusBadge tone="info">Через агентство</StatusBadge>}
         {employment.ends_on && (
           <StatusBadge tone={employment.ends_on <= today ? "neutral" : "warning"}>
             {employment.ends_on <= today ? "Уволен официально" : "Увольнение"} {formatDayMonth(employment.ends_on)}
@@ -139,10 +145,14 @@ export function OfficialEmploymentSection({
         </div>
         {current && (
           <div className="contents">
-            <dt className="text-[13px] text-muted-foreground">Оклад</dt>
+            <dt className="text-[13px] text-muted-foreground">{agency ? "Получает в месяц" : "Оклад"}</dt>
             <dd className="-mt-2 text-sm tabular-nums sm:mt-0">
-              <Money value={current.gross} fraction="auto" /> · на руки{" "}
-              <Money value={officialNet(current.gross)} fraction="auto" />
+              <Money value={current.gross} fraction="auto" />
+              {!agency && (
+                <>
+                  {" "}· на руки <Money value={officialNet(current.gross)} fraction="auto" />
+                </>
+              )}
               {next && (
                 <p className="text-xs text-muted-foreground">
                   С {formatDayMonth(next.valid_from)}: {formatRub(next.gross, { fraction: "auto" })}
@@ -173,8 +183,9 @@ export function OfficialEmploymentSection({
       </dl>
 
       {employDrawer}
-      {panel === "edit" && (
+      {shownPanel === "edit" && (
         <OfficialEmploymentDrawer
+          open={panel === "edit"}
           mode="edit"
           employeeId={employeeId}
           employment={employment}
@@ -184,8 +195,9 @@ export function OfficialEmploymentSection({
           onClose={close}
         />
       )}
-      {panel === "salary" && (
+      {shownPanel === "salary" && (
         <OfficialSalaryDrawer
+          open={panel === "salary"}
           employment={employment}
           salaries={salaries}
           today={today}
@@ -194,11 +206,12 @@ export function OfficialEmploymentSection({
           onClose={close}
         />
       )}
-      {panel === "end" && (
-        <OfficialEndDialog employment={employment} employeeName={employeeName} today={today} onClose={close} />
+      {shownPanel === "end" && (
+        <OfficialEndDialog open={panel === "end"} employment={employment} employeeName={employeeName} today={today} onClose={close} />
       )}
-      {panel === "cancel" && (
+      {shownPanel === "cancel" && (
         <OfficialCancelDialog
+          open={panel === "cancel"}
           employmentId={employment.id}
           startsOn={employment.starts_on}
           onClose={close}
@@ -210,10 +223,13 @@ export function OfficialEmploymentSection({
 
 /** Отмена оформления, сделанного по ошибке: период пропадает из карточки и ведомости. */
 function OfficialCancelDialog({
+  open = true,
   employmentId,
   startsOn,
   onClose,
 }: {
+  /** Открыта ли панель. Её держат смонтированной, пока она уезжает (docs/motion.md). */
+  open?: boolean;
   employmentId: string;
   startsOn: string;
   onClose: () => void;
@@ -235,7 +251,7 @@ function OfficialCancelDialog({
   };
   return (
     <ConfirmDialog
-      open
+      open={open}
       onOpenChange={(open) => {
         if (!open) onClose();
       }}

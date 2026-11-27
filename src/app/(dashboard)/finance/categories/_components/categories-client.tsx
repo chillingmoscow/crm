@@ -1,5 +1,6 @@
 "use client";
 
+import { useExitValue } from "@/hooks/use-exit-value";
 import { useEffect, useMemo, useState, useTransition, type CSSProperties } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -253,6 +254,9 @@ export function CategoriesClient({
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<TreeCategory | null>(null);
+  // Окно держим смонтированным, пока оно закрывается (docs/motion.md): в нём
+  // остаются прежние название и последствия, а не сброшенные.
+  const shownDelete = useExitValue(deleteTarget && { target: deleteTarget });
 
   const restore = async (category: Pick<TreeCategory, "id" | "name">) => {
     setRestoringId(category.id);
@@ -858,26 +862,26 @@ export function CategoriesClient({
         onConfirm={() => void confirmArchive()}
       />
 
-      {deleteTarget ? (
+      {shownDelete ? (
         <HardDeleteConfirmDialog
-          open
+          open={!!deleteTarget}
           onOpenChange={(open) => {
             if (!open) setDeleteTarget(null);
           }}
           entityGenitive="статью"
-          entityName={deleteTarget.name}
+          entityName={shownDelete.target.name}
           impact={
-            deleteTarget.operations
-              ? [{ label: "Операции останутся без статьи", count: deleteTarget.operations, tone: "unbind" }]
+            shownDelete.target.operations
+              ? [{ label: "Операции останутся без статьи", count: shownDelete.target.operations, tone: "unbind" }]
               : []
           }
           restrictedBy={[]}
           onConfirm={async () => {
-            const result = await deleteFinanceCategory(deleteTarget.id, { confirmName: deleteTarget.name });
+            const result = await deleteFinanceCategory(shownDelete.target.id, { confirmName: shownDelete.target.name });
             if (result.error) return { error: result.error };
-            toast.success(`Статья «${deleteTarget.name}» удалена`);
+            toast.success(`Статья «${shownDelete.target.name}» удалена`);
             setDeleteTarget(null);
-            if (drawer?.id === deleteTarget.id) setDrawer(null);
+            if (drawer?.id === shownDelete.target.id) setDrawer(null);
             router.refresh();
           }}
         />

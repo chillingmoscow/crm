@@ -20,11 +20,14 @@ import { Field, FieldSelect, dateLabel } from "./fields";
 import { GENDER_OPTIONS, isGender } from "@/lib/people/gender";
 import { unwrapAction } from "@/lib/actions/result";
 export function HireDrawer({
+  open = true,
   detail,
   options: initialOptions,
   onClose,
   onSaved,
 }: {
+  /** Открыта ли панель. Её держат смонтированной, пока она уезжает (docs/motion.md). */
+  open?: boolean;
   detail: CandidateDetail;
   options: HiringOptions;
   onClose: () => void;
@@ -137,7 +140,7 @@ export function HireDrawer({
     });
   return (
     <EditDrawer
-      open
+      open={open}
       title={
         locked
           ? "Продолжить оформление"

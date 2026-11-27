@@ -1,5 +1,6 @@
 "use client";
 
+import { useExitValue } from "@/hooks/use-exit-value";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { toast } from "sonner";
@@ -15,10 +16,11 @@ import { Money, formatRub } from "@/components/shared/money";
 import { unwrapAction } from "@/lib/actions/result";
 import { formatDayMonth } from "@/lib/format/date";
 import { countRu } from "@/lib/format/plural";
+import { signedAmountClass } from "@/lib/format/amount";
 import { addDays } from "@/lib/sales/time";
-import { payoutRowState, type PayoutRowState, type PayoutScheduleCode } from "@/lib/payroll/payout-plan";
+import { payDayChoices, payoutRowState, type PayoutRowState, type PayoutScheduleCode } from "@/lib/payroll/payout-plan";
 import { Banknote, CalendarClock, Check, ListChecks, Loader2, MoreHorizontal, RefreshCw, X } from "lucide-react";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
   loadPayoutPlan,
   savePayoutPlan,
@@ -31,20 +33,28 @@ import { PayrollTable } from "./payroll-table";
 import { PayrollEmployeeCell } from "./payroll-employee-cell";
 import { PayrollDetailDialog } from "./payroll-detail-dialog";
 import { PayoutIssueDialog } from "./payout-issue-dialog";
+import { PayoutBreakdown } from "./payout-breakdown";
 import { selectClass } from "./select-class";
 import formStyle from "./payroll-payment-form.module.css";
 
 const labels = {
   employee: "Сотрудник",
+  // Перенос с прошлого месяца: переплата уменьшает выплату, долг — увеличивает (Павел, 26.11).
+  carried: "Перенос",
   earned: "Начислено",
   forecast: "Прогноз",
   reserve: "Запас",
   official: "Официальная часть",
   paid: "Выплачено",
   amount: "К выплате",
+  left: "Останется",
   status: "Статус",
 };
-const numeric = ["earned", "forecast", "reserve", "official", "paid", "amount"];
+// На виду — только то, по чему решают: сколько начислено, сколько выдаём и
+// сколько останемся должны (или переплатим). Остальное — в «Столбцах» и в
+// панели строки «Как посчитано» (Павел, 26.11).
+const hiddenColumns = ["carried", "forecast", "reserve", "official", "paid"];
+const numeric = ["carried", "earned", "forecast", "reserve", "official", "paid", "amount", "left"];
 const FLAG_TEXT: Record<string, string> = {
   few_shifts: "Мало смен для прогноза",
   no_shift: "Нет смены в окне выплаты: выберите день сами",
@@ -111,6 +121,9 @@ export function PayoutPlan({
   const [busy, setBusy] = useState(false);
   const [openRow, setOpenRow] = useState<PayoutRowView | null>(null);
   const [issueOpen, setIssueOpen] = useState(false);
+  // Панели держим смонтированными, пока они уезжают (docs/motion.md).
+  const shownRow = useExitValue(openRow);
+  const shownIssue = useExitValue(issueOpen);
   const [cancelOpen, setCancelOpen] = useState(false);
 
   const load = useCallback(async () => {
@@ -167,12 +180,14 @@ export function PayoutPlan({
         minSize: id === "employee" ? 200 : label.length * 8 + 32,
         accessorFn: (row) =>
           id === "employee" ? row.name
+          : id === "carried" ? row.breakdown.carried
           : id === "earned" ? row.breakdown.earned
           : id === "forecast" ? row.breakdown.forecast
           : id === "reserve" ? row.breakdown.reserve
           : id === "paid" ? row.paidNow
           : id === "official" ? row.breakdown.official
           : id === "amount" ? row.amount
+          : id === "left" ? (row.leftAfter ?? 0)
           : (row.outside ? "~" : row.pay_date ?? ""),
         cell: ({ row }) => {
           const r = row.original;
@@ -186,26 +201,51 @@ export function PayoutPlan({
                 href={`/people/payroll/${r.employee_id}${plan || view?.window ? `?month=${(plan?.month ?? view?.window?.month ?? "").slice(0, 7)}` : ""}`}
               />
             );
-          if (r.outside && id !== "status" && id !== "earned" && id !== "paid" && id !== "official")
+          if (r.outside && id !== "status" && id !== "earned" && id !== "paid" && id !== "official" && id !== "carried")
             return <span className="text-muted-foreground">—</span>;
           if (id === "status") return rowStatus(r, today);
           if (id === "forecast")
             return r.breakdown.averageShift == null
               ? <span className="text-muted-foreground">—</span>
               : <span data-tip={`${countRu(r.breakdown.forecastShifts, "смена", "смены", "смен")} × ${formatRub(r.breakdown.averageShift)}`}><Money value={r.breakdown.forecast} /></span>;
+          if (id === "carried")
+            return r.breakdown.carried ? (
+              <span data-tip={r.breakdown.carried < 0 ? "Переплата прошлого месяца: уменьшает выплату" : "Долг с прошлого месяца: добавляется к выплате"}>
+                <Money value={r.breakdown.carried} signed />
+              </span>
+            ) : <span className="text-muted-foreground">—</span>;
           if (id === "official")
             return r.breakdown.official ? (
-              <span data-tip="Выплатит бухгалтерия; идёт в счёт первой половины месяца">
+              <span data-tip={r.breakdown.officialAgency ? "Получит через агентство" : "Выплатит бухгалтерия; идёт в счёт первой половины месяца"}>
                 <Money value={-r.breakdown.official} signed />
               </span>
             ) : <span className="text-muted-foreground">—</span>;
-          if (id === "amount")
+          if (id === "amount") {
+            // Подпись — только когда выдача правда будет меньше плана: после
+            // формирования появились выплаты или штрафы и срезали потолок.
+            const cut = r.willIssue !== null && plan && Math.round(r.willIssue) < Math.round(r.amount);
             return (
               <span className="inline-flex flex-col items-end">
                 <Money value={r.amount} className="font-semibold" />
-                {r.fresh !== null && plan && Math.round(r.fresh) < Math.round(r.amount) && (
-                  <small className="text-xs text-amber-700 dark:text-amber-400">сейчас {formatRub(r.fresh)}</small>
+                {cut && (
+                  <small
+                    className="text-xs text-amber-700 dark:text-amber-400"
+                    data-tip={`Выдадим ${formatRub(r.willIssue!)}`}
+                    data-tip-sub="После формирования плана появились выплаты или штрафы — больше начисленного не выдаём"
+                  >
+                    выдадим {formatRub(r.willIssue!)}
+                  </small>
                 )}
+              </span>
+            );
+          }
+          if (id === "left")
+            return r.leftAfter === null ? <span className="text-muted-foreground">—</span> : (
+              <span
+                data-tip={r.leftAfter < 0 ? "Переплатим за месяц после этой выплаты" : "Будем должны за месяц после этой выплаты"}
+                data-tip-sub={r.breakdown.official > 0 ? (r.breakdown.officialAgency ? "С учётом суммы, которую сотрудник получит через агентство" : "С учётом официальной части, которую выплатит бухгалтерия") : undefined}
+              >
+                <Money value={r.leftAfter} className={r.leftAfter < 0 ? signedAmountClass(r.leftAfter) : undefined} />
               </span>
             );
           const value = id === "earned" ? r.breakdown.earned : id === "reserve" ? r.breakdown.reserve : r.paidNow;
@@ -223,8 +263,18 @@ export function PayoutPlan({
   const recalc = () => run(async () => unwrapAction(await savePayoutPlan(schedule)), "План пересчитан", "recalc");
   const approve = () => run(async () => unwrapAction(await setPayoutPlanState(plan!.id, "approved")), "План утверждён", "approve");
   const secondary = plan && plan.state !== "cancelled";
+  // Одно вторичное действие — кнопкой рядом, а не меню «⋯» ради одного пункта
+  // (Павел, 26.11): у утверждённого плана остаётся только «Отменить план».
+  const recalcable = plan?.state === "draft";
+  const cancelButton = secondary && !recalcable && (
+    <Button size="sm" variant="outline" disabled={busy} onClick={() => setCancelOpen(true)}>
+      <X className="size-4" />
+      Отменить план
+    </Button>
+  );
   const actions = view && canPay ? (
     <>
+      {cancelButton}
       {!plan && view.window && (
         <Button size="sm" disabled={busy} onClick={() => void form()}>
           {pending === "form" ? <Loader2 className="size-4 animate-spin" /> : <ListChecks className="size-4" />}
@@ -243,7 +293,7 @@ export function PayoutPlan({
           Выдать сейчас
         </Button>
       )}
-      {secondary && (
+      {secondary && recalcable && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button size="sm" variant="outline" className="w-9 px-0" disabled={busy} aria-label="Ещё действия с планом" data-tip="Ещё">
@@ -251,12 +301,11 @@ export function PayoutPlan({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
-            {plan.state === "draft" && (
-              <DropdownMenuItem onSelect={() => void recalc()}>
-                <RefreshCw className="size-4" />
-                Пересчитать по свежим данным
-              </DropdownMenuItem>
-            )}
+            <DropdownMenuItem onSelect={() => void recalc()}>
+              <RefreshCw className="size-4" />
+              Пересчитать по свежим данным
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={() => setCancelOpen(true)}>
               <X className="size-4" />
               Отменить план
@@ -290,13 +339,15 @@ export function PayoutPlan({
       {view && !view.window && !plan && (
         <EmptyState
           icon={CalendarClock}
-          title="Сейчас не окно первой выплаты"
-          description="План первой выплаты формируется с 25-го по 1-е число."
+          title="Плана выплаты пока нет"
+          description="План выплаты появится, когда наступит её период."
         />
       )}
       {view && (view.window || plan) && (
         <PayrollTable
-          id={`payroll.payout-plan.${schedule}`}
+          // v2: новый набор столбцов по умолчанию — прежняя сохранённая видимость его бы перебила.
+          id={`payroll.payout-plan.${schedule}.v2`}
+          hiddenColumns={hiddenColumns}
           label="План выплат"
           rows={rows}
           columns={columns}
@@ -311,25 +362,28 @@ export function PayoutPlan({
           totals={(visible) => ({
             amount: <Money value={visible.reduce((s, r) => s + r.amount, 0)} className="font-semibold" />,
             paid: <Money value={visible.reduce((s, r) => s + r.paidNow, 0)} />,
+            left: <Money value={visible.reduce((s, r) => s + (r.leftAfter ?? 0), 0)} />,
           })}
         />
       )}
 
-      {openRow && view && (
+      {shownRow && view && (
         <PayoutRowDrawer
-          row={openRow}
+          key={shownRow.id ?? shownRow.employee_id}
+          open={!!openRow}
+          row={shownRow}
           view={view}
           busy={busy}
           onClose={() => setOpenRow(null)}
           onSave={async (amount, day) => {
-            if (!openRow.id) return;
-            const ok = await run(async () => unwrapAction(await updatePayoutRow(openRow.id!, amount, day)), "Строка сохранена");
+            if (!shownRow.id) return;
+            const ok = await run(async () => unwrapAction(await updatePayoutRow(shownRow.id!, amount, day)), "Строка сохранена");
             if (ok) setOpenRow(null);
           }}
         />
       )}
-      {issueOpen && plan && (
-        <PayoutIssueDialog planId={plan.id} onClose={() => setIssueOpen(false)} onDone={refresh} />
+      {shownIssue && plan && (
+        <PayoutIssueDialog open={issueOpen} planId={plan.id} onClose={() => setIssueOpen(false)} onDone={refresh} />
       )}
       <ConfirmDialog
         open={cancelOpen}
@@ -350,43 +404,40 @@ export function PayoutPlan({
 }
 
 function PayoutRowDrawer({
+  open = true,
   row,
   view,
   busy,
   onClose,
   onSave,
 }: {
+  /** Открыта ли панель. Её держат смонтированной, пока она уезжает (docs/motion.md). */
+  open?: boolean;
   row: PayoutRowView;
   view: PayoutPlanView;
   busy: boolean;
   onClose: () => void;
   onSave: (amount: number, day: string | null) => Promise<void>;
 }) {
-  const [amount, setAmount] = useState(String(row.amount));
+  // Ноль — подсказкой в пустом поле: нажал и вводишь сумму, без стирания «0» (Павел, 26.11).
+  const [amount, setAmount] = useState(row.amount ? String(row.amount) : "");
   const [day, setDay] = useState(row.pay_date ?? "");
   const b = row.breakdown;
   const plan = view.plan;
   const editable = !!row.id && !!plan && plan.state !== "cancelled" && row.state !== "issued" && view.canPay;
   const days: string[] = [];
-  if (view.window) for (let d = view.window.from; d <= view.window.to; d = addDays(d, 1)) days.push(d);
+  // Дни — по графику сотрудника (основной 25–1 / 10–16, клинер с 20-го / с 5-го).
+  const span = row.dayWindow ?? view.window;
+  if (span) for (let d = span.from; d <= span.to; d = addDays(d, 1)) days.push(d);
   const parsed = Number(amount.replace(",", ".").replace(/\s/g, ""));
   const valid = Number.isFinite(parsed) && parsed >= 0;
   const changed = valid && (parsed !== row.amount || (day || null) !== row.pay_date);
-  const line = (label: string, value: React.ReactNode, hint?: string) => (
-    <li className="flex items-start justify-between gap-3 py-1.5">
-      <span>
-        {label}
-        {hint && <span className="block text-xs text-muted-foreground">{hint}</span>}
-      </span>
-      <span className="shrink-0 tabular-nums">{value}</span>
-    </li>
-  );
   return (
     <PayrollDetailDialog
-      open
+      open={open}
       onOpenChange={(open) => { if (!open && !busy) onClose(); }}
       title="Строка плана"
-      description={plan ? `${monthTitle(plan.month)}, первая выплата` : "Расчёт первой выплаты"}
+      description={`${monthTitle(plan?.month ?? view.window?.month ?? "")}, ${view.payoutNo === 2 ? "вторая" : "первая"} выплата`}
       employee={{ name: row.name, role: row.role, avatarUrl: row.avatarUrl }}
       amount={<Money value={row.amount} />}
       amountLabel="К выплате"
@@ -403,22 +454,7 @@ function PayoutRowDrawer({
       }
     >
       <div className={formStyle.form}>
-        <ul className="divide-y rounded-xl border px-3 text-sm">
-          {b.carried !== 0 && line("Перенесено из прошлого месяца", <Money value={b.carried} signed />)}
-          {line("Начислено за месяц", <Money value={b.earned} />, b.pendingFines ? `без штрафов на подтверждении: ${formatRub(b.pendingFines)}` : undefined)}
-          {line(
-            "Прогноз до конца месяца",
-            b.averageShift == null ? "—" : <Money value={b.forecast} />,
-            b.averageShift == null ? "мало смен для прогноза" : `${countRu(b.forecastShifts, "смена", "смены", "смен")} × ${formatRub(b.averageShift)}`,
-          )}
-          {line("Запас", <Money value={-b.reserve} signed />)}
-          {line("Половина месяца", <Money value={b.half} />)}
-          {line("Уже выплачено за месяц", <Money value={-b.paid} signed />)}
-          {b.official > 0 && line("Официальная часть", <Money value={-b.official} signed />, "выплатит бухгалтерия; идёт в счёт первой половины месяца")}
-          {line("Больше не выдаём", <Money value={Math.max(0, b.ceiling)} />, b.official > 0 ? "начислено минус выплаченное, запас и официальная часть" : "начислено минус выплаченное и запас")}
-          {line("К выплате", <strong><Money value={row.amount} /></strong>, "вниз до шага округления")}
-          {row.issued > 0 && line("Выдано", <Money value={row.issued} />)}
-        </ul>
+        {/* Сначала — что требует решения, потом правка, потом расшифровка (Павел, 26.11). */}
         {payoutRowState(row, view.today, "cash") === "missed" && (
           <p role="alert" className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
             День выплаты прошёл, а выдано не всё. Выберите другой день в окне.
@@ -429,27 +465,46 @@ function PayoutRowDrawer({
             {b.flags.map((f) => <li key={f}>{FLAG_TEXT[f] ?? f}</li>)}
           </ul>
         )}
+        {row.manual && row.ceilingNow !== null && row.amount - row.issued > Math.max(0, row.ceilingNow) + 0.5 && (
+          <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+            Сумма поставлена вручную и больше расчёта на {formatRub(row.amount - row.issued - Math.max(0, row.ceilingNow))}: выдадим её, но с учётом запаса{row.breakdown.official > 0 ? " и официальной части" : ""} это уйдёт в переплату.
+          </p>
+        )}
+        {plan && row.willIssue !== null && Math.round(row.willIssue) < Math.round(row.amount) && (
+          <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+            Выдадим {formatRub(row.willIssue)}: после формирования плана появились выплаты или штрафы, а больше начисленного не выдаём.
+          </p>
+        )}
         {editable && (
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="payout-row-amount">К выплате, ₽</Label>
-              <Input id="payout-row-amount" inputMode="decimal" value={amount} disabled={busy} onChange={(e) => setAmount(e.target.value)} />
+              <Input id="payout-row-amount" inputMode="decimal" placeholder="0" value={amount} disabled={busy} onChange={(e) => setAmount(e.target.value)} />
               {row.issued > 0 && <p className="text-[13px] text-muted-foreground">Не меньше выданного: {formatRub(row.issued)}</p>}
             </div>
             <div className="space-y-2">
-                <Label htmlFor="payout-row-day">День выплаты</Label>
-                <OptionSelect
-                  id="payout-row-day"
-                  className={selectClass}
-                  value={day}
-                  disabled={busy}
-                  onValueChange={setDay}
-                  placeholder="Не выбран"
-                  options={[{ value: "", label: "Не выбран" }, ...days.map((d) => ({ value: d, label: formatDayMonth(d) ?? d }))]}
-                />
+              <Label htmlFor="payout-row-day">День выплаты</Label>
+              <OptionSelect
+                id="payout-row-day"
+                className={selectClass}
+                value={day}
+                disabled={busy}
+                onValueChange={setDay}
+                placeholder="Не выбран"
+                // Дни со сменой в графике — первыми: выдают на смене (Павел, 26.11).
+                options={[{ value: "", label: "Не выбран" }]}
+                groups={payDayChoices(days, row.shiftDays, view.today, row.pay_date, !view.shiftsHidden).map((g) => ({
+                  label: g.label,
+                  options: g.days.map((d) => ({ value: d.date, label: formatDayMonth(d.date) ?? d.date, disabled: d.past })),
+                }))}
+              />
             </div>
           </div>
         )}
+        <section aria-label="Как посчитано" className="space-y-4 border-t pt-5">
+          <h3 className="text-base font-semibold">Как посчитано</h3>
+          <PayoutBreakdown b={b} amount={row.amount} issued={row.issued} manual={row.manual} leftAfter={row.leftAfter} step={row.step} month={plan?.month ?? view.window?.month ?? null} />
+        </section>
       </div>
     </PayrollDetailDialog>
   );

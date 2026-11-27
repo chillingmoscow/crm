@@ -15,9 +15,11 @@ import { Field, FieldSelect, localTimeToISO, wallTime, safeLink } from "./fields
 import { unwrapAction } from "@/lib/actions/result";
 
 type Draft = { source: string; place: string; link: string; date: string; time: string; interviewer: string };
-export function CandidateAppointmentDrawer({ candidateId, appointment: a, initialKind, canScheduleTrial, options, onClose, onSaved,
+export function CandidateAppointmentDrawer({ open = true, candidateId, appointment: a, initialKind, canScheduleTrial, options, onClose, onSaved,
   eligibilityLoading = false, eligibilityError, onRetryEligibility,
 }: {
+  /** Открыта ли панель. Её держат смонтированной, пока она уезжает (docs/motion.md). */
+  open?: boolean;
   candidateId: string; appointment: Appointment | null; initialKind: Appointment["kind"]; canScheduleTrial: boolean;
   options: AppointmentOptions; onClose: () => void;
   onSaved: (saved: { id: string; revision: number; status: CandidateStatus }) => void | Promise<void>;
@@ -52,7 +54,7 @@ export function CandidateAppointmentDrawer({ candidateId, appointment: a, initia
       await onSaved({ ...saved, id: candidateId });
     } catch (error) { toast.error(appointmentError(error, kind)); }
   });
-  return <EditDrawer open title={a ? "Изменить назначение" : kind === "trial" ? "Назначить стажировку" : "Назначить собеседование"}
+  return <EditDrawer open={open} title={a ? "Изменить назначение" : kind === "trial" ? "Назначить стажировку" : "Назначить собеседование"}
     description={kind === "trial" ? "День, время и заведение" : "Дата, время, место и интервьюер"}
     onOpenChange={(open) => { if (!open && !busy) onClose(); }}
     footer={<><Button variant="outline" disabled={busy} onClick={onClose}>Отмена</Button><Button

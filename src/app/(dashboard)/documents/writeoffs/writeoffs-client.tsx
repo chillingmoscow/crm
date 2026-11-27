@@ -1,4 +1,5 @@
 "use client";
+import { useExitValue } from "@/hooks/use-exit-value";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -258,6 +259,8 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
       failed: boolean;
     } | null>(null),
     [deductionAttempt, setDeductionAttempt] = useState(0);
+  // Панель держим смонтированной, пока она уезжает (docs/motion.md).
+  const shownDetail = useExitValue(detail);
   const canAssign = data.permissions.includes("inventory.assign_writeoff_pool");
   // Снимки удержаний видит тот, кто их ставит или видит зарплату (RLS 309).
   const canSeeDeduction =
@@ -1169,10 +1172,11 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
       ) : (
         body
       )}
-      {detail && (
+      {shownDetail && (
         <WriteoffDrawer
-          key={detail.id}
-          row={allRows.find((r) => r.id === detail.id) ?? detail}
+          key={shownDetail.id}
+          open={!!detail}
+          row={allRows.find((r) => r.id === shownDetail.id) ?? shownDetail}
           data={data}
           canAssign={canAssign}
           onAssign={assign}

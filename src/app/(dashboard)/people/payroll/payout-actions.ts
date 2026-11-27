@@ -5,7 +5,11 @@ import { writeAuditEvent } from "@/lib/audit/write";
 import { loadTelegramBot } from "@/lib/integrations/telegram-bot";
 import {
   PAYOUT_SCHEDULE_LABELS,
-  firstPayoutWindow,
+  payoutPeriod,
+  scheduleWindow,
+  type PayoutNo,
+  issueCap,
+  recheckDue,
   type PayoutScheduleCode,
   type PlannedRow,
 } from "@/lib/payroll/payout-plan";
@@ -14,6 +18,7 @@ import {
   SCHEDULES,
   buildContext,
   buildPreview,
+  cashPlan,
   executeCashIssue,
   findPlan,
   loadSettingsRow,
@@ -52,17 +57,40 @@ export type PayoutRowView = PlannedRow & {
   avatarUrl: string | null;
   issued: number;
   state: "planned" | "partial" | "issued";
-  /** Сколько вышло бы сейчас, с учётом новых выплат и штрафов; null — строка уже выдана. */
-  fresh: number | null;
+  /**
+   * Сколько выдадим по строке при выдаче (вместе с уже выданным): сумма плана,
+   * срезанная свежим потолком, если после формирования появились выплаты или
+   * штрафы. Пересчёт формулы сюда не входит — план не «плывёт» от прогноза.
+   * null — строка выдана.
+   */
+  willIssue: number | null;
   /** Выплачено за месяц на сейчас: ручные выплаты, авансы и выданное по плану. */
   paidNow: number;
   /** Вне плана (график «Переводом»): платят себе по счетам, выплаты вносят вручную. */
   outside: boolean;
+  /** Дни опубликованных смен сотрудника в окне выплаты — подсказка при выборе дня. */
+  shiftDays: string[];
+  /** Дни выплаты по графику сотрудника: основной 25–1 / 10–16, клинер с 20-го / с 5-го. */
+  dayWindow: { from: string; to: string } | null;
+  /** Шаг округления графика сотрудника. */
+  step: number;
+  /** Сумму поставили руками (например, аванс): выдаём её, режет только заработанное. */
+  manual: boolean;
+  /** Сколько выдали бы по расчёту сейчас — для предупреждения, если ручная сумма больше. */
+  ceilingNow: number | null;
+  /**
+   * Сколько останемся должны после этой выплаты: перенос + начислено −
+   * выплачено − официальная часть − ещё не выданное по строке. Минус —
+   * переплата. Не прыгает после выдачи: выданное уже в «выплачено».
+   */
+  leftAfter: number | null;
 };
 export type PayoutPlanView = {
   schedule: PayoutScheduleCode;
   today: string;
   window: { month: string; from: string; to: string } | null;
+  /** Первая или вторая выплата за месяц. */
+  payoutNo: PayoutNo;
   plan: { id: string; state: "draft" | "approved" | "cancelled"; version: number; month: string } | null;
   rows: PayoutRowView[];
   settings: PayoutSettingsView;
@@ -91,43 +119,79 @@ async function loadPayoutPlanImpl(schedule: PayoutScheduleCode): Promise<PayoutP
  * без второй загрузки всей зарплаты (раньше «Сформировать план» грузил её трижды).
  */
 async function planView(s: PayrollScope, schedule: PayoutScheduleCode, firstCtx: Context): Promise<PayoutPlanView> {
-  const window = firstPayoutWindow(firstCtx.today);
-  // Вне окна показываем последний план графика, если он есть.
-  const saved = await findPlan(s, schedule, window?.month ?? null);
-  const ctx = saved && saved.month !== window?.month ? await context(s, saved.month) : firstCtx;
-  const month = saved?.month ?? window?.month ?? null;
-  const span = saved ? { from: saved.window_from, to: saved.window_to } : window;
-  const fresh = month && span ? plan(ctx, schedule, month, span) : [];
+  // Один план на выплату за месяц (Павел, 27.11): период плана — по сегодняшнему дню.
+  const period = payoutPeriod(firstCtx.today);
+  const saved = await findPlan(s, schedule, period.month, period.payoutNo);
+  const ctx = firstCtx;
+  const month = period.month;
+  const payoutNo: PayoutNo = saved?.payout_no ?? period.payoutNo;
+  const fresh = cashPlan(ctx, schedule, month, payoutNo);
   const freshBy = new Map(fresh.map((r) => [r.employee_id, r]));
+  const configOf = (id: string) => {
+    const code = ctx.data.employees.find((e) => e.id === id)?.payout_schedule ?? "main";
+    return ctx.settings.schedules[code] ?? ctx.settings.schedules[schedule];
+  };
+  const dayWindow = (id: string) => scheduleWindow(configOf(id), payoutNo, month);
+  const leftAfter = (b: PlannedRow["breakdown"], toIssue: number) => money(b.ceiling + b.reserve - Math.max(0, toIssue));
+  const capOf = (row: { employee_id: string; manual: boolean }) => {
+    const b = freshBy.get(row.employee_id)?.breakdown;
+    return b ? issueCap(b, row.manual) : 0;
+  };
+  const shiftDays = (id: string) => {
+    const w = dayWindow(id);
+    return [...new Set(ctx.shifts
+      .filter((x) => x.employee_id === id && x.business_date >= w.from && x.business_date <= w.to)
+      .map((x) => x.business_date))].sort();
+  };
   const employees = new Map(ctx.data.employees.map((e) => [e.id, e]));
   const person = (id: string) => {
     const e = employees.get(id);
     return { name: e?.name ?? "Сотрудник", role: e?.role_name ?? "", avatarUrl: e?.avatar_url ?? null };
   };
   const rows: PayoutRowView[] = saved
-    ? (await planRows(s, saved.id)).map((row) => ({
+    ? (await planRows(s, saved.id)).map((row) => {
+      // Сумма строки зафиксирована планом, а всё вокруг неё — на текущую
+      // минуту (Павел, 26.11): начислено, выплачено (в том числе по этому
+      // плану), можно выдать, будем должны. Снимок формирования — только если
+      // сотрудника больше нет в графике плана.
+      const fb = freshBy.get(row.employee_id)?.breakdown;
+      const now = fb ?? row.breakdown;
+      return {
         employee_id: row.employee_id,
         pay_date: row.pay_date,
         amount: row.amount,
-        breakdown: row.breakdown,
+        breakdown: now,
         id: row.id,
         ...person(row.employee_id),
         issued: row.issued,
         state: row.state,
-        fresh: row.state === "issued" ? null : money((freshBy.get(row.employee_id)?.amount ?? 0) + row.issued),
-        paidNow: freshBy.get(row.employee_id)?.breakdown.paid ?? row.breakdown.paid,
+        // Так же, как при выдаче: план режет только свежий потолок (recheckDue),
+        // ручную сумму — только заработанное (issueCap).
+        willIssue: row.state === "issued"
+          ? null
+          : money(recheckDue(row, capOf(row), configOf(row.employee_id).step).due + row.issued),
+        manual: row.manual,
+        ceilingNow: freshBy.get(row.employee_id)?.breakdown.ceiling ?? null,
+        leftAfter: leftAfter(now, row.amount - row.issued),
+        paidNow: fb?.paid ?? row.breakdown.paid,
         outside: false,
-      }))
+        shiftDays: shiftDays(row.employee_id),
+        dayWindow: dayWindow(row.employee_id),
+        step: configOf(row.employee_id).step,
+      };
+    })
     : fresh.map((row) => ({
-        ...row, id: null, ...person(row.employee_id), issued: 0, state: "planned" as const, fresh: row.amount,
-        paidNow: row.breakdown.paid, outside: false,
+        ...row, id: null, ...person(row.employee_id), issued: 0, state: "planned" as const, willIssue: row.amount,
+        paidNow: row.breakdown.paid, outside: false, shiftDays: shiftDays(row.employee_id), dayWindow: dayWindow(row.employee_id), step: configOf(row.employee_id).step,
+        manual: false, ceilingNow: row.breakdown.ceiling, leftAfter: leftAfter(row.breakdown, row.amount),
       }));
   // Вне плана — строками со статусом, без сумм к выплате.
   const outside: PayoutRowView[] =
-    month && span
-      ? plan(ctx, "transfer", month, span).map((row) => ({
+    schedule === "main"
+      ? plan(ctx, "transfer", month, payoutNo).map((row) => ({
           ...row, amount: 0, pay_date: null, id: null, ...person(row.employee_id), issued: 0, state: "planned" as const,
-          fresh: null, paidNow: row.breakdown.paid, outside: true,
+          willIssue: null, paidNow: row.breakdown.paid, outside: true, shiftDays: [], dayWindow: null, step: 0, manual: false, ceilingNow: null,
+          leftAfter: leftAfter(row.breakdown, 0),
         }))
       : [];
   rows.sort((a, b) => a.name.localeCompare(b.name, "ru"));
@@ -135,7 +199,8 @@ async function planView(s: PayrollScope, schedule: PayoutScheduleCode, firstCtx:
   return {
     schedule,
     today: ctx.today,
-    window: saved ? { month: saved.month, from: saved.window_from, to: saved.window_to } : window,
+    window: saved ? { month: saved.month, from: saved.window_from, to: saved.window_to } : { month, from: period.from, to: period.to },
+    payoutNo,
     plan: saved ? { id: saved.id, state: saved.state, version: saved.version, month: saved.month } : null,
     rows,
     settings: ctx.settings,
@@ -177,17 +242,16 @@ async function savePayoutPlanImpl(schedule: PayoutScheduleCode): Promise<PayoutP
   scheduleSchema.parse(schedule);
   const s = await payScope();
   const ctx = await context(s, null);
-  const window = firstPayoutWindow(ctx.today);
-  if (!window) throw new Error("Сейчас не окно первой выплаты: оно с 25-го по 1-е число");
-  const rows = plan(ctx, schedule, window.month, window);
-  const before = await findPlan(s, schedule, window.month);
+  const period = payoutPeriod(ctx.today);
+  const rows = cashPlan(ctx, schedule, period.month, period.payoutNo);
+  const before = await findPlan(s, schedule, period.month, period.payoutNo);
   const r = await s.client.rpc("payroll_payout_plan_save", {
     p_input: {
       schedule,
-      month: window.month,
-      payout_no: 1,
-      window_from: window.from,
-      window_to: window.to,
+      month: period.month,
+      payout_no: period.payoutNo,
+      window_from: period.from,
+      window_to: period.to,
       rows: rows.map((row) => ({
         employee_id: row.employee_id,
         pay_date: row.pay_date,
@@ -199,7 +263,8 @@ async function savePayoutPlanImpl(schedule: PayoutScheduleCode): Promise<PayoutP
   if (r.error) throw new Error(r.error.message);
   const id = r.data as string;
   await audit(s, before ? "payroll.payout_plan.recalculated" : "payroll.payout_plan.created", id, {
-    month: window.month,
+    month: period.month,
+    payout_no: period.payoutNo,
     schedule,
     schedule_label: PAYOUT_SCHEDULE_LABELS[schedule],
     rows: rows.length,

@@ -3,12 +3,14 @@ import assert from "node:assert/strict";
 import {
   canChangeOfficialAccount,
   canRecordOfficialPayment,
+  agencyAmountError,
   officialAmountsError,
   officialBankFor,
   officialEmploymentFor,
   officialPaymentOption,
   officialTaxOf,
 } from "./official-payment.ts";
+import { officialAccountSelectable } from "./payment-journal.ts";
 import type { Allocation, OfficialEmploymentSpan, OfficialExpected, Payment, PayrollData } from "./types.ts";
 
 const spans: OfficialEmploymentSpan[] = [
@@ -48,7 +50,7 @@ const allocation = (payment_id: string, employee_id: string, amount: number, set
   settled_amount,
 });
 const expected: OfficialExpected[] = [
-  { employee_id: "e-1", employment_id: "oe-1", month: "2026-11-01", kind: "first", gross: 74666.67, days_paid: 28, days_in_month: 30 },
+  { employee_id: "e-1", employment_id: "oe-1", month: "2026-11-01", kind: "first", gross: 74666.67, days_paid: 28, days_in_month: 30, agency: false },
 ];
 const base = { employments: spans, expected, payments: [] as Payment[], allocations: [] as Allocation[] };
 
@@ -63,6 +65,7 @@ test("ожидаемая часть подставляет оклад и сум�
   assert.deepEqual(officialPaymentOption({ ...base, employeeIds: ["e-1"], month: "2026-11-01" }), {
     available: true,
     employmentId: "oe-1",
+    agency: false,
     blocked: null,
     gross: 74666.67,
     net: 64959.67,
@@ -106,7 +109,7 @@ test("после удаления подставляются суммы посл
     ],
     allocations: [allocation("p-old", "e-1", 60000, 68965.52), allocation("p-new", "e-1", 64959.67, 74666.67)],
   });
-  assert.deepEqual(option, { available: true, employmentId: "oe-1", blocked: null, gross: 74666.67, net: 64959.67 });
+  assert.deepEqual(option, { available: true, employmentId: "oe-1", agency: false, blocked: null, gross: 74666.67, net: 64959.67 });
 });
 
 test("месяц увольнения без суммы — поля пустые", () => {
@@ -116,7 +119,7 @@ test("месяц увольнения без суммы — поля пусты�
     employeeIds: ["e-1"],
     month: "2026-11-01",
   });
-  assert.deepEqual(option, { available: true, employmentId: "oe-1", blocked: null, gross: null, net: null });
+  assert.deepEqual(option, { available: true, employmentId: "oe-1", agency: false, blocked: null, gross: null, net: null });
 });
 
 test("суммы официальной выплаты проверяются как в базе", () => {
@@ -156,4 +159,42 @@ test("счёт официальной выплаты — только расчё
   assert.equal(officialBankFor(banks, null, "card"), "rs-1");
   assert.equal(officialBankFor(banks, null, null), "rs-1");
   assert.equal(officialBankFor(banks.slice(0, 1), null, null), "");
+});
+
+test("через агентство: на руки = сумма месяца, без налога", () => {
+  const agencySpans: OfficialEmploymentSpan[] = [{ id: "oe-a", employee_id: "e-a", starts_on: "2026-11-01", ends_on: null, agency: true }];
+  const agencyExpected: OfficialExpected[] = [
+    { employee_id: "e-a", employment_id: "oe-a", month: "2026-11-01", kind: "full", gross: 4350, days_paid: 30, days_in_month: 30, agency: true },
+  ];
+  assert.deepEqual(
+    officialPaymentOption({ employments: agencySpans, expected: agencyExpected, payments: [], allocations: [], employeeIds: ["e-a"], month: "2026-11-01" }),
+    { available: true, employmentId: "oe-a", agency: true, blocked: null, gross: 4350, net: 4350 },
+  );
+  // Без периодов в данных метка берётся из ожидаемой части.
+  const fromExpected = officialPaymentOption({ employments: [], expected: agencyExpected, payments: [], allocations: [], employeeIds: ["e-a"], month: "2026-11-01" });
+  assert.equal(fromExpected.available && fromExpected.agency, true);
+  // После удаления — та же сумма.
+  const again = officialPaymentOption({
+    employments: agencySpans,
+    expected: [],
+    payments: [{ ...payment("g-1", "cancelled", "2026-11-01"), transaction_id: null, agency: true }],
+    allocations: [{ ...allocation("g-1", "e-a", 4350, 4350) }],
+    employeeIds: ["e-a"],
+    month: "2026-11-01",
+  });
+  assert.deepEqual(again, { available: true, employmentId: "oe-a", agency: true, blocked: null, gross: 4350, net: 4350 });
+});
+
+test("«Сменить счёт» не предлагается для записи через агентство", () => {
+  const row = { id: "p", date: "", transactionId: "t", earningMonths: [], employee: "", kind: "", amount: 1, status: "", posted: true, official: true };
+  assert.equal(officialAccountSelectable(row), true);
+  assert.equal(officialAccountSelectable({ ...row, transactionId: null, agency: true }), false);
+  assert.equal(officialAccountSelectable({ ...row, posted: false }), false);
+});
+
+test("сумма записи через агентство проверяется как в базе", () => {
+  assert.equal(agencyAmountError(null), "Укажите сумму, которую сотрудник получил через агентство");
+  assert.equal(agencyAmountError(0), "Укажите сумму, которую сотрудник получил через агентство");
+  assert.equal(agencyAmountError(4350.555), "Не больше двух знаков после запятой");
+  assert.equal(agencyAmountError(4350), null);
 });

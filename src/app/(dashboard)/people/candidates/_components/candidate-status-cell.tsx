@@ -1,5 +1,6 @@
 "use client";
 
+import { useExitValue } from "@/hooks/use-exit-value";
 import { useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
@@ -44,6 +45,8 @@ export function CandidateStatusCell({
   const [open, setOpen] = useState(false),
     [pending, setPending] = useState<CandidateStatus | null>(null),
     [appointmentKind, setAppointmentKind] = useState<Appointment["kind"] | null>(null);
+  // Панель держим смонтированной, пока она уезжает (docs/motion.md).
+  const shownAppointmentKind = useExitValue(appointmentKind);
   const status = pending ?? candidate.status;
   const save = async (next: CandidateStatus) => {
     setOpen(false);
@@ -110,8 +113,8 @@ export function CandidateStatusCell({
         </div>
       </PopoverContent>
     </Popover>
-    {appointmentKind && (
-      <CandidateStatusAppointment candidate={candidate} kind={appointmentKind} options={options}
+    {shownAppointmentKind && (
+      <CandidateStatusAppointment key={shownAppointmentKind} open={!!appointmentKind} candidate={candidate} kind={shownAppointmentKind} options={options}
         onClose={() => setAppointmentKind(null)} onSaved={onSaved} />
     )}
     </>

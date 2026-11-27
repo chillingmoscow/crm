@@ -1476,6 +1476,7 @@ export type Database = {
       }
       invitations: {
         Row: {
+          chat_invites: boolean
           created_at: string
           email: string
           expires_at: string
@@ -1486,6 +1487,7 @@ export type Database = {
           venue_id: string
         }
         Insert: {
+          chat_invites?: boolean
           created_at?: string
           email: string
           expires_at?: string
@@ -1496,6 +1498,7 @@ export type Database = {
           venue_id: string
         }
         Update: {
+          chat_invites?: boolean
           created_at?: string
           email?: string
           expires_at?: string
@@ -2643,6 +2646,7 @@ export type Database = {
       payroll_official_employments: {
         Row: {
           account_id: string
+          agency: boolean
           archived_at: string | null
           archived_by: string | null
           contract_date: string | null
@@ -2661,6 +2665,7 @@ export type Database = {
         }
         Insert: {
           account_id: string
+          agency?: boolean
           archived_at?: string | null
           archived_by?: string | null
           contract_date?: string | null
@@ -2679,6 +2684,7 @@ export type Database = {
         }
         Update: {
           account_id?: string
+          agency?: boolean
           archived_at?: string | null
           archived_by?: string | null
           contract_date?: string | null
@@ -3301,6 +3307,57 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      sales_month_plans: {
+        Row: {
+          account_id: string
+          created_at: string
+          created_by: string | null
+          id: string
+          month: string
+          turnover: number
+          updated_at: string
+          updated_by: string | null
+          venue_id: string
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          month: string
+          turnover: number
+          updated_at?: string
+          updated_by?: string | null
+          venue_id: string
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          month?: string
+          turnover?: number
+          updated_at?: string
+          updated_by?: string | null
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sales_month_plans_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sales_month_plans_account_id_venue_id_fkey"
+            columns: ["account_id", "venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["account_id", "id"]
           },
         ]
       }
@@ -4472,6 +4529,7 @@ export type Database = {
       payroll_official_expected: {
         Args: { p_from: string; p_to: string }
         Returns: {
+          agency: boolean
           days_in_month: number
           days_paid: number | null
           employee_id: string

@@ -10,7 +10,12 @@ import { formatRub } from "@/components/shared/money";
 import { PayrollDetailDialog } from "@/app/(dashboard)/people/payroll/_components/payroll-detail-dialog";
 import formStyle from "@/app/(dashboard)/people/payroll/_components/payroll-payment-form.module.css";
 import { actionErrorMessage, unwrapAction } from "@/lib/actions/result";
-import { monthStart, salaryDocumentName, type OfficialSalaryVersion } from "@/lib/people/official-employment";
+import {
+  monthStart,
+  officialAmountLabel,
+  salaryDocumentName,
+  type OfficialSalaryVersion,
+} from "@/lib/people/official-employment";
 import { changeOfficialSalary, type OfficialEmploymentPeriod } from "../../official-actions";
 import { OfficialFileField, useOfficialDocumentUpload, type OfficialDocumentTarget } from "./official-file-field";
 import { OfficialTaxHint } from "./official-tax-hint";
@@ -18,9 +23,11 @@ import { OfficialTaxHint } from "./official-tax-hint";
 /**
  * Панель «Изменить оклад»: новый оклад по договору с первого числа месяца и
  * файл допсоглашения. Прошлые месяцы не пересчитываются; тот же месяц —
- * исправление оклада, а не новая версия.
+ * исправление оклада, а не новая версия. Если платит агентство — та же
+ * панель для суммы «Получает в месяц», без налога.
  */
 export function OfficialSalaryDrawer({
+  open = true,
   employment,
   salaries,
   today,
@@ -28,6 +35,8 @@ export function OfficialSalaryDrawer({
   canAttachFiles,
   onClose,
 }: {
+  /** Открыта ли панель. Её держат смонтированной, пока она уезжает (docs/motion.md). */
+  open?: boolean;
   employment: OfficialEmploymentPeriod;
   salaries: OfficialSalaryVersion[];
   today: string;
@@ -47,10 +56,12 @@ export function OfficialSalaryDrawer({
   const upload = useOfficialDocumentUpload(documents);
   const documentName = salaryDocumentName(validFrom);
   const sameMonth = salaries.find((s) => s.valid_from === validFrom);
+  const agency = employment.agency;
+  const amountLabel = officialAmountLabel(agency);
 
   const submit = async () => {
     if (!(gross && gross > 0)) {
-      setGrossError("Укажите оклад по договору больше нуля");
+      setGrossError(agency ? "Укажите, сколько сотрудник получает в месяц" : "Укажите оклад по договору больше нуля");
       return;
     }
     setGrossError(null);
@@ -66,7 +77,7 @@ export function OfficialSalaryDrawer({
           ...(documentPath ? { document_path: documentPath } : {}),
         }),
       );
-      toast.success("Оклад изменён");
+      toast.success(agency ? "Сумма в месяц изменена" : "Оклад изменён");
       onClose();
     } catch (e) {
       setError(actionErrorMessage(e, "Не удалось сохранить. Проверьте подключение и попробуйте ещё раз"));
@@ -77,11 +88,11 @@ export function OfficialSalaryDrawer({
 
   return (
     <PayrollDetailDialog
-      open
+      open={open}
       onOpenChange={(open) => {
         if (!open && !busy) onClose();
       }}
-      title="Изменить оклад"
+      title={agency ? "Изменить сумму в месяц" : "Изменить оклад"}
       description=""
       footer={
         <>
@@ -100,7 +111,7 @@ export function OfficialSalaryDrawer({
           required
           hint={
             sameMonth
-              ? `С этого месяца уже действует оклад ${formatRub(sameMonth.gross, { fraction: "auto" })}: он будет заменён`
+              ? `С этого месяца уже действует ${agency ? "сумма" : "оклад"} ${formatRub(sameMonth.gross, { fraction: "auto" })}: ${agency ? "она будет заменена" : "он будет заменён"}`
               : "Прошлые месяцы не пересчитываются"
           }
         >
@@ -118,12 +129,14 @@ export function OfficialSalaryDrawer({
           )}
         </Field>
         <Field
-          label="Оклад по договору"
+          label={amountLabel}
           required
           error={grossError ?? undefined}
-          hint={gross && gross > 0 ? <OfficialTaxHint gross={gross} /> : undefined}
+          hint={!agency && gross && gross > 0 ? <OfficialTaxHint gross={gross} /> : undefined}
         >
-          {(control) => <AmountInput {...control} value={gross} onChange={setGross} placeholder="80 000" disabled={busy} />}
+          {(control) => (
+            <AmountInput {...control} value={gross} onChange={setGross} placeholder={agency ? "4 350" : "80 000"} disabled={busy} />
+          )}
         </Field>
         {canAttachFiles && (
           <OfficialFileField

@@ -1,5 +1,6 @@
 "use client";
 
+import { useExitValue } from "@/hooks/use-exit-value";
 import { useId, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { ChevronDown, ChevronRight, Download, Loader2, Plus } from "lucide-react";
@@ -22,7 +23,7 @@ import { countRu } from "@/lib/format/plural";
 import { accrualRole, isShiftAccrual, shiftSalary } from "@/lib/payroll/accrual-view";
 import { attendanceRuleAtDate } from "@/lib/payroll/attendance";
 import { statementRows } from "@/lib/payroll/calculate";
-import { officialExpectedNote } from "@/lib/payroll/official";
+import { officialExpectedNote, officialPartLabel, officialPaymentLabel } from "@/lib/payroll/official";
 import {
   buildPaySheet,
   monthKey,
@@ -33,7 +34,7 @@ import {
   type PaySheetItem,
 } from "@/lib/payroll/pay-sheet";
 import type { PayEmployee, PayrollData, PayrollTransfer } from "@/lib/payroll/types";
-import { buildPayslip, payslipFileName } from "@/lib/payroll/payslip";
+import { downloadPayslip as savePayslip } from "./payslip-download";
 import { cn } from "@/lib/utils";
 import { PayrollEntryForm, PayrollJournal } from "@/app/(dashboard)/people/payroll/_components/payroll-journal";
 import { paymentJournalRows } from "@/lib/payroll/payment-journal";
@@ -114,16 +115,7 @@ export function StaffPaySheet({
   async function downloadPayslip() {
     setDownloading(true);
     try {
-      const payslip = buildPayslip(data, employee, month, (a) => accrualRole(a, employee.role_name, data));
-      // The PDF renderer is heavy: it is loaded only when a statement is requested.
-      const { renderPayslip } = await import("@/lib/payroll/payslip-pdf");
-      const blob = await renderPayslip(payslip, `${window.location.origin}/fonts/inter`);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = payslipFileName(payslip);
-      link.click();
-      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      await savePayslip(data, employee, month);
     } catch {
       toast.error("Не удалось сформировать выписку. Попробуйте ещё раз");
     } finally {
@@ -203,6 +195,10 @@ export function StaffPaySheet({
     [data, payments],
   );
   const paymentRow = paymentRows.find((r) => r.id === paymentId);
+  // Панели держим смонтированными, пока они уезжают (docs/motion.md).
+  const shownPaymentRow = useExitValue(paymentRow);
+  const shownCondition = useExitValue(condition);
+  const shownTransfer = useExitValue(transferOpen);
   const day = mine.find((a) => a.id === dayId) ?? null;
 
   /** Строка листа ведёт к записи (премия, штраф) или к расчёту дня. */
@@ -395,7 +391,7 @@ export function StaffPaySheet({
             {official && (
               <div className="flex justify-between gap-4">
                 <dt>
-                  <span className="text-muted-foreground">Официальная часть</span>
+                  <span className="text-muted-foreground">{officialPartLabel(official.agency)}</span>
                   {official.amount !== null && (
                     <span className="block text-xs text-muted-foreground">
                       {officialExpectedNote(official, month)}
@@ -476,7 +472,7 @@ export function StaffPaySheet({
                       <>
                         {p.kind === "advance" ? "Аванс" : "Зарплата"}
                         {p.official && (
-                          <StatusBadge tone="info" className="ml-2">Официальная</StatusBadge>
+                          <StatusBadge tone="info" className="ml-2">{officialPaymentLabel(p.agency)}</StatusBadge>
                         )}
                         {!p.posted && (
                           <StatusBadge className="ml-2">Удалена</StatusBadge>
@@ -512,12 +508,14 @@ export function StaffPaySheet({
         />
       </ProfileSection>
 
-      {condition && (
+      {shownCondition && (
         <EmployeeConditionDrawer
+          key={shownCondition}
+          open={!!condition}
           data={data}
           employee={employee}
           month={month}
-          mode={condition}
+          mode={shownCondition}
           onClose={() => setCondition(null)}
           onChange={onChange}
         />
@@ -572,16 +570,17 @@ export function StaffPaySheet({
         onOpenIdChange={setEntryId}
         onChange={onChange}
       />
-      {paymentRow && (
+      {shownPaymentRow && (
         <PaymentDetails
-          key={`${paymentRow.id}:${paymentRow.posted}`}
-          row={paymentRow}
+          key={`${shownPaymentRow.id}:${shownPaymentRow.posted}`}
+          open={!!paymentRow}
+          row={shownPaymentRow}
           data={data}
           busy={cancelBusy}
           onClose={() => setPaymentId(null)}
           onCancel={() => {
             setPaymentId(null);
-            setCancelPayment(paymentRow.id);
+            setCancelPayment(shownPaymentRow.id);
           }}
         />
       )}
@@ -607,8 +606,9 @@ export function StaffPaySheet({
         busy={cancelBusy}
         onConfirm={() => void confirmCancel()}
       />
-      {transferOpen && (
+      {shownTransfer && (
         <PayrollTransferDrawer
+          open={transferOpen}
           data={data}
           month={month}
           employeeId={employee.id}
@@ -845,25 +845,24 @@ function Conditions({
   const rows: { label: string; value: ReactNode; note?: ReactNode; action?: ReactNode }[] = [
     {
       label: "Должность",
-      value: role || "Не назначена",
-      note: (
-        <>
-          Ставки и проценты заданы должностью.
-          {employee.role_id && (
-            <>
-              {" "}
-              <Link href={`/people/roles/${employee.role_id}?tab=compensation`} className={link}>
-                Оплата должности
-              </Link>
-            </>
-          )}
-        </>
-      ),
+      // Название должности ведёт в её оплату — кликабельное имя (design-system),
+      // а не отдельная ссылка «Оплата должности». Одно действие на строку —
+      // «Изменить» (Павел, 26.11: «много кнопок»).
+      value: employee.role_id && role ? (
+        <Link
+          href={`/people/roles/${employee.role_id}?tab=compensation`}
+          className="transition-colors hover:text-brand"
+          data-tip="Оплата должности"
+        >
+          {role}
+        </Link>
+      ) : (role || "Не назначена"),
+      note: "Ставки и проценты заданы должностью.",
       action:
         canConfigure && !employee.local_user_id ? (
           <button type="button" className={link} onClick={() => onEdit("model")}>Изменить</button>
         ) : canConfigure && employee.local_user_id && context === "payroll" ? (
-          <Link href={`/people/staff/${employee.local_user_id}`} className={link}>Изменить в карточке</Link>
+          <Link href={`/people/staff/${employee.local_user_id}`} className={link} data-tip="Должность меняется в карточке сотрудника">Изменить</Link>
         ) : null,
     },
     {

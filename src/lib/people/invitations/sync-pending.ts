@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { queueAcceptedInvitationChats } from "@/lib/people/chat-invites-queue";
 
 export async function syncPendingInvitationsForUser(params: {
   userId: string;
@@ -12,14 +13,14 @@ export async function syncPendingInvitationsForUser(params: {
   const nowIso = new Date().toISOString();
   const { data: pendingInvitations } = await db
     .from("invitations")
-    .select("id, venue_id, role_id, created_at")
+    .select("id, venue_id, role_id, created_at, chat_invites")
     .ilike("email", email)
     .eq("status", "pending")
     .gt("expires_at", nowIso)
     .order("created_at", { ascending: false });
 
   const pending = (pendingInvitations ??
-    []) as Array<{ id: string; venue_id: string; role_id: string; created_at: string }>;
+    []) as Array<{ id: string; venue_id: string; role_id: string; created_at: string; chat_invites: boolean }>;
 
   if (pending.length === 0) return;
 
@@ -43,4 +44,5 @@ export async function syncPendingInvitationsForUser(params: {
       "id",
       pending.map((inv) => inv.id)
     );
+  await queueAcceptedInvitationChats({ userId: params.userId, email, invitations: pending });
 }

@@ -24,7 +24,7 @@ export default async function PayrollPage({
   if (query.tab === "attendance") redirect(`/schedule?date=${month}-01`);
   // Название заведения (для шапки выгрузки ведомости) приходит в том же
   // запросе к venues, что и часовой пояс, — без отдельного шага после обзора.
-  const data = unwrapAction(await loadPayrollOverview());
+  const data = unwrapAction(await loadPayrollOverview(month));
   return (
     <PayrollWorkspace
       key={`${data.venueId}:${month}`}

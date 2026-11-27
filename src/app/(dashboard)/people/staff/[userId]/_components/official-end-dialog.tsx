@@ -14,11 +14,14 @@ import { endOfficialEmployment, type OfficialEmploymentPeriod } from "../../offi
  * уволенного — исправление даты.
  */
 export function OfficialEndDialog({
+  open = true,
   employment,
   employeeName,
   today,
   onClose,
 }: {
+  /** Открыта ли панель. Её держат смонтированной, пока она уезжает (docs/motion.md). */
+  open?: boolean;
   employment: OfficialEmploymentPeriod;
   employeeName: string;
   today: string;
@@ -47,7 +50,7 @@ export function OfficialEndDialog({
 
   return (
     <ConfirmDialog
-      open
+      open={open}
       onOpenChange={(open) => {
         if (!open) onClose();
       }}

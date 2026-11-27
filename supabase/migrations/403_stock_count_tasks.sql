@@ -1,5 +1,5 @@
 -- ============================================================
--- 395_stock_count_tasks.sql
+-- 403_stock_count_tasks.sql
 -- Вид задачи «Пересчёт» (взвешивание табака) и очередь проведения.
 --
 -- * schedule_task_definitions.kind — 'checklist' (как раньше) или 'stock_count';

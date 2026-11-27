@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -10,8 +10,10 @@ import { PayrollEmployeeCell } from "./payroll-employee-cell";
 type EmployeeOption = { id: string; name: string; role_name?: string | null; avatar_url?: string | null };
 
 /** Shared single/multiple employee selection; callers retain eligibility rules. */
-export function PayrollEmployeePicker({ id, employees, selectedIds, onChange, multiple = false, disabled = false }: {
+export function PayrollEmployeePicker({ id, employees, selectedIds, onChange, multiple = false, disabled = false, aside }: {
   id?: string;
+  /** Справа в строке варианта, перед галочкой: например, остаток сотрудника. */
+  aside?: (employee: EmployeeOption) => ReactNode;
   employees: EmployeeOption[];
   selectedIds: string[];
   onChange: (ids: string[]) => void;
@@ -41,7 +43,11 @@ export function PayrollEmployeePicker({ id, employees, selectedIds, onChange, mu
               if (!multiple) setOpen(false);
             }}>
             <PayrollEmployeeCell name={e.name} role={e.role_name} avatarUrl={e.avatar_url}/>
-            {selectedIds.includes(e.id) && <Check size={16} className="ml-auto shrink-0 text-brand"/>}
+            {aside && <span className="ml-auto shrink-0 text-right text-[13px]">{aside(e)}</span>}
+            {/* Место под галочку держим и у невыбранных: суммы справа стоят ровным столбцом. */}
+            {aside
+              ? <Check size={16} aria-hidden className={`shrink-0 text-brand ${selectedIds.includes(e.id) ? "" : "invisible"}`}/>
+              : selectedIds.includes(e.id) && <Check size={16} className="ml-auto shrink-0 text-brand"/>}
           </CommandItem>)}
         </CommandList>
       </Command>

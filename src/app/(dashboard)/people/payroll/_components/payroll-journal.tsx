@@ -805,7 +805,8 @@ export function PayrollEntryForm({
   data: PayrollData;
   month: string;
   employeeId?: string;
-  initialKind?: "deduction" | "allowance";
+  /** Премия открывает ту же форму сразу на вкладке «Премия». */
+  initialKind?: "deduction" | "allowance" | "bonus";
   onCreated: (ids: string[]) => Promise<void>;
 }) {
   const [kind, setKind] = useState<"bonus" | "deduction" | "warning" | "allowance">(initialKind),

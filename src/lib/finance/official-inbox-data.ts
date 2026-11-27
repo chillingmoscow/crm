@@ -90,12 +90,20 @@ export async function loadOfficialReview(): Promise<{ data: OfficialInbox; error
   if (!venue) return { data: EMPTY, error: null };
 
   const employeeIds = [...new Set(rows.map((r) => r.employee_id))];
-  const [employees, settings, banks] = await Promise.all([
+  const employmentIds = [...new Set(rows.map((r) => r.employment_id))];
+  const [employees, employments, settings, banks] = await Promise.all([
     employeeIds.length
       ? db
           .from<{ id: string; name: string; local_user_id: string | null }[]>("payroll_employees")
           .select("id, name, local_user_id")
           .in("id", employeeIds)
+      : Promise.resolve({ data: [], error: null }),
+    // «Платит агентство»: карточка проводит запись без счёта и налога.
+    employmentIds.length
+      ? db
+          .from<{ id: string; agency: boolean | null }[]>("payroll_official_employments")
+          .select("id, agency")
+          .in("id", employmentIds)
       : Promise.resolve({ data: [], error: null }),
     db
       .from<{ official_pay_day: number | null; official_bank_account_id: string | null }>("payroll_settings")
@@ -120,6 +128,11 @@ export async function loadOfficialReview(): Promise<{ data: OfficialInbox; error
   }
 
   const byId = new Map((employees.data ?? []).map((e) => [e.id, e]));
+  // До миграции 398 столбца agency нет: карточки — как обычные официальные.
+  if (employments.error) console.warn(`[official-inbox] без признака «Платит агентство»: ${employments.error.message}`);
+  const agencyIds = new Set(
+    (employments.error ? [] : (employments.data ?? [])).filter((e) => e.agency === true).map((e) => e.id),
+  );
   const items: OfficialReviewItem[] = rows.flatMap((r) => {
     if (!isOfficialReviewReason(r.reason)) return [];
     const employee = byId.get(r.employee_id);
@@ -135,6 +148,7 @@ export async function loadOfficialReview(): Promise<{ data: OfficialInbox; error
         kind: (KINDS.has(r.kind) ? r.kind : "full") as OfficialReviewItem["kind"],
         gross: r.gross === null ? null : Number(r.gross),
         reason: r.reason,
+        agency: agencyIds.has(r.employment_id),
       },
     ];
   });

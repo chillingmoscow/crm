@@ -30,7 +30,7 @@
     --muted-foreground: 240 4% 46%;    /* #71717a */
     --accent: 240 5% 96%;
     --accent-foreground: 240 6% 10%;
-    --destructive: 357 100% 45%;       /* #e7000b */
+    --destructive: 4 74% 49%;          /* #d92d20 — приглушённый красный (26.11.2026; было #e7000b) */
     --destructive-foreground: 0 0% 100%;
     --border: 240 6% 90%;              /* #e4e4e7 */
     --input: 240 6% 90%;
@@ -128,7 +128,7 @@
     --muted-foreground: 240 5% 65%;    /* #a1a1aa */
     --accent: 240 4% 16%;
     --accent-foreground: 0 0% 98%;
-    --destructive: 0 84% 60%;          /* #ef4444 — lighter for dark surfaces */
+    --destructive: 4 86% 58%;          /* #f04438 — пара к #d92d20, светлее для тёмных поверхностей */
     --destructive-foreground: 0 0% 98%;
     --border: 0 0% 100% / 0.1;         /* #ffffff1a */
     --input: 0 0% 100% / 0.1;
@@ -4687,6 +4687,43 @@ html.theme-transition *::after {
 /* Шеврон раскрытия поворачивается плавно (rotate-180 / rotate-90 — классом). */
 .motion-chevron {
   transition: transform 500ms var(--ease-soft);
+}
+
+/* Идущая смена в расписании: точка 6px, от неё спокойно расходится и
+   гаснет кольцо того же цвета. Цвет — фон точки (обычно bg-current).
+   Мигает не карточка, а только кольцо; reduce motion — точка стоит. */
+@keyframes shift-live-ring {
+  from { opacity: 0.5; scale: 1; }
+  to   { opacity: 0;   scale: 2.6; }
+}
+.shift-live-dot {
+  position: relative;
+  display: inline-block;
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+}
+.shift-live-dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: inherit;
+  animation: shift-live-ring 2400ms var(--ease-soft) infinite;
+}
+/* Отметка «сейчас» на идущей смене: полоска прошедшей части, цвет текста
+   карточки (цвет шаблона). Раз в минуту край мягко доезжает до нового места. */
+.shift-now-track {
+  background: color-mix(in srgb, currentColor 18%, transparent);
+}
+.shift-now-fill {
+  background: color-mix(in srgb, currentColor 70%, transparent);
+  transform-origin: left center;
+  transition: transform 600ms var(--ease-soft);
+}
+@media (prefers-reduced-motion: reduce) {
+  .shift-live-dot::after { animation: none; opacity: 0; }
 }
 
 /* ──── prefers-reduced-motion ────────────────────────────────────

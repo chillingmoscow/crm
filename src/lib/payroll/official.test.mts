@@ -4,7 +4,9 @@ import {
   officialExpectedNote,
   officialGrossFromNet,
   officialNet,
+  officialPartLabel,
   officialPayBy,
+  officialPaymentLabel,
   officialTax,
 } from "./official.ts";
 
@@ -53,6 +55,23 @@ test("подпись ожидаемой части: полный, первый �
   );
 });
 
+test("подпись ожидаемой части через агентство: без бухгалтерии и срока", () => {
+  const base = { amount: 4350, days_paid: null, days_in_month: 30, agency: true };
+  assert.equal(officialExpectedNote({ ...base, kind: "full" }, "2026-11-01"), "получит через агентство");
+  assert.equal(
+    officialExpectedNote({ ...base, kind: "first", amount: 2175, days_paid: 15 }, "2026-11-01"),
+    "за 15 из 30 дней · получит через агентство",
+  );
+  assert.equal(officialExpectedNote({ ...base, kind: "final", amount: null }, "2026-11-01"), "сумма уточняется");
+});
+
+test("названия официальной части и записи через агентство", () => {
+  assert.equal(officialPartLabel(false), "Официальная часть");
+  assert.equal(officialPartLabel(true), "Через агентство");
+  assert.equal(officialPaymentLabel(undefined), "Официальная");
+  assert.equal(officialPaymentLabel(true), "Через агентство");
+});
+
 // ── Ожидаемая часть в остатке ведомости ───────────────────────
 import { statementRows, transferableBalance } from "./calculate.ts";
 import type { Accrual, Allocation, OfficialExpected, PayEmployee, Payment } from "./types.ts";
@@ -94,6 +113,7 @@ const expected = (over: Partial<OfficialExpected> = {}): OfficialExpected => ({
   gross: 80000,
   days_paid: null,
   days_in_month: 30,
+  agency: false,
   ...over,
 });
 const rowFor = (
@@ -107,7 +127,7 @@ const rowFor = (
 test("ожидаемая официальная часть уменьшает остаток к выплате", () => {
   const row = rowFor([earned(100000)], [expected()]);
   assert.equal(row.remaining, 20000);
-  assert.deepEqual(row.officialExpected, { amount: 80000, kind: "full", days_paid: null, days_in_month: 30 });
+  assert.deepEqual(row.officialExpected, { amount: 80000, kind: "full", days_paid: null, days_in_month: 30, agency: false });
 });
 
 test("официальная часть больше заработанного — переплата, без ошибки", () => {
@@ -122,10 +142,16 @@ test("последний месяц: сумма неизвестна, остат
   assert.equal(row.officialExpected?.kind, "final");
 });
 
+test("через агентство: сумма месяца уменьшает остаток, метка доходит до строки", () => {
+  const row = rowFor([earned(10000)], [expected({ gross: 4350, agency: true })]);
+  assert.equal(row.remaining, 5650);
+  assert.equal(row.officialExpected?.agency, true);
+});
+
 test("первый месяц: пропорциональная сумма и дни", () => {
   const row = rowFor([earned(100000)], [expected({ kind: "first", gross: 74666.67, days_paid: 28 })]);
   assert.equal(row.remaining, 25333.33);
-  assert.deepEqual(row.officialExpected, { amount: 74666.67, kind: "first", days_paid: 28, days_in_month: 30 });
+  assert.deepEqual(row.officialExpected, { amount: 74666.67, kind: "first", days_paid: 28, days_in_month: 30, agency: false });
 });
 
 test("ожидание другого месяца или сотрудника не учитывается", () => {

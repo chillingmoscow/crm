@@ -10,7 +10,8 @@ import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/shared/confirm-dialog";
 import { unwrapAction } from "@/lib/actions/result";
 import { requestKbReread } from "@/lib/knowledge/reading-actions";
-import { countRu, pluralRu } from "@/lib/format/plural";
+import { countRu } from "@/lib/format/plural";
+import { kbRereadConfirmText } from "@/lib/knowledge/reading-copy";
 import { markKbPageAsRead } from "@/lib/knowledge/required-reading";
 import { kbReadingPlate } from "@/lib/knowledge/document";
 import { formatDayMonth } from "@/lib/format/date";
@@ -141,19 +142,9 @@ export function KbRequiredReadingBanner({
   if (plate.kind === "none") return null;
 
   const onRequestReread = async () => {
-    const people = stats?.staleOthers ?? 0;
-    const others =
-      people > 0
-        ? `${countRu(people, "человек", "человека", "человек")} снова ${pluralRu(people, "увидит", "увидят", "увидят")} её в «К прочтению» и ${pluralRu(people, "получит", "получат", "получат")} уведомление.`
-        : "";
-    const self = stats?.selfStale
-      ? people > 0
-        ? " Ваше прочтение тоже сбросится."
-        : "Ваше прочтение сбросится, страница снова появится в «К прочтению»."
-      : "";
     const ok = await confirm({
       title: `Попросить перечитать «${pageTitle?.trim() || "Без названия"}»?`,
-      description: `${others}${self}`.trim() || "Прочтения старых версий перестанут считаться.",
+      description: kbRereadConfirmText(stats?.staleOthers ?? 0, stats?.selfStale ?? false),
       confirmLabel: "Попросить перечитать",
       tone: "warning",
     });

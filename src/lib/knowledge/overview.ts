@@ -72,12 +72,14 @@ export function parseKbOverviewPeriod(
   params: { period?: string; from?: string },
   today: string,
 ): KbOverviewPeriod {
+  // Будущего периода нет: дальше текущего — текущий (строки ISO сравнимы).
   if (params.period === "month") {
-    const from = params.from && MONTH_RE.test(params.from) ? params.from : today.slice(0, 7);
-    return { kind: "month", start: from };
+    const current = today.slice(0, 7);
+    const from = params.from && MONTH_RE.test(params.from) ? params.from : current;
+    return { kind: "month", start: from > current ? current : from };
   }
   const from = params.from && DAY_RE.test(params.from) ? params.from : today;
-  return { kind: "week", start: mondayOf(from) };
+  return { kind: "week", start: mondayOf(from > today ? today : from) };
 }
 
 export function shiftKbOverviewPeriod(period: KbOverviewPeriod, delta: number): KbOverviewPeriod {

@@ -36,7 +36,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
   const { row } = await getKbPageBySlugCached(slug);
-  return { title: `Кто прочитал — ${row?.title?.trim() || "Без названия"}` };
+  return { title: `Кто прочитал «${row?.title?.trim() || "Без названия"}»` };
 }
 
 const STATUS_ORDER: Record<KbReadingStatus, number> = { unread: 0, reread: 1, read: 2 };
@@ -115,6 +115,7 @@ export default async function KbRequiredReadingAdminPage({
             title={title}
             remindCount={summary.remindCount}
             staleCount={summary.staleCount}
+            viewerStale={summary.viewerStale}
             changedAfterRead={summary.changedAfterRead}
             remindedAt={summary.remindedAt}
           />

@@ -326,19 +326,18 @@ export async function listRecentKbPages(limit = 10): Promise<{
 }
 
 /** Page-view data, нужный для рендера /knowledge/[slug] — required-reading
- *  + read-status + favorited + breadcrumbs + backlinks. Один RPC вместо
- *  4 отдельных query'ев + 3 internal'ов в getKbPageReadStatus = 6+ DB-hits
- *  → 1 на навигацию. См. миграцию 108. */
+ *  + read-status + favorited + breadcrumbs + backlinks одним RPC
+ *  (миграции 108 и 416). */
 export interface KbPageViewData {
   required_reading: boolean;
   current_version: number;
-  /** ISO timestamp когда юзер подтвердил прочтение CURRENT версии,
-   *  null если не подтверждал или подтверждал старую. */
+  /** Когда пользователь подтвердил действующее прочтение; null — не читал
+   *  или руководитель попросил перечитать (миграция 416: правка страницы
+   *  прочтение не сбрасывает). */
   my_read_at: string | null;
   my_read_version: number | null;
-  /** True если юзер прочитал старую версию и страница обновилась
-   *  с тех пор — banner показывает «Страница обновлена, подтвердите
-   *  заново». */
+  /** Читал раньше, но руководитель попросил перечитать — плашка «Страница
+   *  изменилась, прочитайте снова». */
   needs_reread: boolean;
   favorited: boolean;
   /** Root → leaf chain. Last entry = текущая страница. */

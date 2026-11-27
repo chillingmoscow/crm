@@ -104,7 +104,7 @@ export async function loadMyTasks(limit = 5): Promise<MyTask[]> {
   }));
 }
 
-/** Обязательное чтение, которое сотрудник ещё не прочитал (или читал старую версию). */
+/** Обязательное чтение, которое сотрудник ещё не прочитал (или его попросили перечитать). */
 export async function loadMyReading(): Promise<{ rows: MyReading[]; error: boolean }> {
   const { rows, error } = await getKbRequiredUnreadForUser();
   return {

@@ -2145,6 +2145,7 @@ export type Database = {
           account_id: string
           page_id: string
           reminded_at: string | null
+          reread_dismissed_at: string | null
           reread_dismissed_version: number | null
           reread_from_version: number | null
           updated_at: string
@@ -2153,6 +2154,7 @@ export type Database = {
           account_id: string
           page_id: string
           reminded_at?: string | null
+          reread_dismissed_at?: string | null
           reread_dismissed_version?: number | null
           reread_from_version?: number | null
           updated_at?: string
@@ -2161,6 +2163,7 @@ export type Database = {
           account_id?: string
           page_id?: string
           reminded_at?: string | null
+          reread_dismissed_at?: string | null
           reread_dismissed_version?: number | null
           reread_from_version?: number | null
           updated_at?: string
@@ -4277,8 +4280,26 @@ export type Database = {
           stale_count: number
           remind_count: number
           changed_after_read: boolean
+          viewer_stale: boolean
           reminded_at: string | null
-          last_edited_at: string | null
+        }[]
+      }
+      kb_analytics_page_stats: {
+        Args: { p_since: string; p_until: string | null }
+        Returns: { page_id: string; total_seconds: number; sessions: number; readers: number }[]
+      }
+      kb_analytics_month_stats: {
+        Args: { p_since: string }
+        Returns: { month: string; total_seconds: number; sessions: number; readers: number }[]
+      }
+      kb_analytics_window_totals: {
+        Args: { p_since: string; p_until: string | null }
+        Returns: {
+          readers: number
+          roster_readers: number
+          roster_total: number
+          total_seconds: number
+          sessions: number
         }[]
       }
       kb_request_reread: { Args: { p_page_id: string }; Returns: number }
@@ -4328,17 +4349,6 @@ export type Database = {
           p_version_number?: number | null
         }
         Returns: number
-      }
-      kb_get_my_recently_viewed: {
-        Args: { p_limit?: number }
-        Returns: {
-          page_id: string
-          slug: string
-          title: string
-          icon: string | null
-          icon_color: string | null
-          last_visit_at: string
-        }[]
       }
       kb_set_page_lock: {
         Args: { p_page_id: string; p_locked: boolean }

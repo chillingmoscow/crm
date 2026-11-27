@@ -82,8 +82,8 @@ export interface KbRequiredReadingStatsRow {
 
 /** Список members active account с их read-status'ом по странице.
  *  Состав — kb_required_reading_roster (активные, не уволенные, с
- *  kb.view_pages). Прочитавшие — первые (по read_at desc), остальные —
- *  по алфавиту.
+ *  kb.view_pages). Порядок — по дате прочтения, затем по имени; страница
+ *  «Кто прочитал» сама ставит наверх тех, кто ещё не прочитал.
  *  Гейт `kb.manage_required_reading` — admin-only view; без permission'а
  *  RPC возвращает 0 rows (UI должен redirect'ить — defense in depth).
  *
@@ -172,7 +172,9 @@ export interface KbRequiredReadingOverviewRow {
    *  ещё не ответил «Попросить перечитать» или «Не нужно». */
   changedAfterRead: boolean;
   remindedAt: string | null;
-  lastEditedAt: string | null;
+  /** Сам смотрящий прочитал старую версию — его прочтение тоже сбросится
+   *  «Попросить перечитать», но уведомления себе нет. */
+  viewerStale: boolean;
 }
 
 /** Сводка по обязательным страницам аккаунта (или одной странице) для
@@ -205,6 +207,6 @@ export async function getKbRequiredReadingOverview(
     remindCount: r.remind_count,
     changedAfterRead: r.changed_after_read,
     remindedAt: r.reminded_at,
-    lastEditedAt: r.last_edited_at,
+    viewerStale: r.viewer_stale,
   }));
 }

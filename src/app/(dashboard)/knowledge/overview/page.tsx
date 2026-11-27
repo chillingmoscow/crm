@@ -21,6 +21,7 @@ import {
 import { fetchAllRows } from "@/lib/supabase/fetch-all";
 import type { LooseQuery } from "@/lib/supabase/loose";
 import { listAuditEvents } from "@/lib/audit/list";
+import { modulesToLikePatterns } from "@/lib/audit/modules";
 import {
   getKbAnalyticsSummary,
   getKbAnalyticsTopPages,
@@ -29,6 +30,7 @@ import {
 import {
   kbOverviewBlocks,
   kbOverviewPeriodLabel,
+  kbOverviewPeriodQuery,
   kbOverviewStaleBefore,
   kbOverviewWindow,
   parseKbOverviewPeriod,
@@ -88,7 +90,12 @@ export default async function KbOverviewPage({
   const window = kbOverviewWindow(period);
   const previous = kbOverviewWindow(shiftKbOverviewPeriod(period, -1));
   const view = blocks.pagesView && params.view === "pages" ? "pages" : "overview";
-  const needPages = view === "pages" || blocks.attention;
+  // Список страниц нужен таблице и строке «не обновлялись полгода» — та
+  // ведёт в «По страницам», поэтому показывается только с аналитикой.
+  const needPages = view === "pages" || (blocks.attention && blocks.pagesView);
+  // От периода зависят показатели аналитики и журнала; одному обязательному
+  // чтению переключатель ничего не меняет — его нет.
+  const periodMatters = blocks.metrics || blocks.changes;
 
   const supabase = await createClient();
   const accountId = await getCachedActiveAccountId();
@@ -115,11 +122,13 @@ export default async function KbOverviewPage({
     blocks.trend && view === "overview" ? getKbMonthlyTrend({ months: 12 }) : null,
     blocks.changes
       ? Promise.all([
-          listAuditEvents({ entityType: "kb_page", pageSize: 6 }),
+          // Весь раздел «База знаний» журнала (страницы и обсуждения) — как
+          // по ссылке «Весь журнал» (`sections=kb`).
+          listAuditEvents({ moduleLikePatterns: modulesToLikePatterns(["kb"]), pageSize: 6 }),
           supabase
             .from("audit_logs")
             .select("id", { count: "exact", head: true })
-            .eq("entity_type", "kb_page")
+            .or(modulesToLikePatterns(["kb"]).map((p) => `action_code.like.${p}`).join(","))
             .gte("created_at", window.sinceISO)
             .lt("created_at", window.untilISO),
         ])
@@ -139,7 +148,6 @@ export default async function KbOverviewPage({
 
   const readNeeded = reading.reduce((sum, r) => sum + r.total, 0);
   const readDone = reading.reduce((sum, r) => sum + r.readCount, 0);
-  const roster = reading[0]?.total ?? null;
   const changes = audit?.[1].count ?? null;
   const loadError = summary?.error ?? topPages?.error ?? trend?.error ?? audit?.[0].error ?? null;
 
@@ -187,7 +195,7 @@ export default async function KbOverviewPage({
       <Breadcrumbs items={[{ label: "База знаний", href: "/knowledge" }, { label: "Обзор" }]} />
       <TablePageHeader
         title="Обзор"
-        period={<KbOverviewPeriod period={period} today={today} />}
+        period={periodMatters ? <KbOverviewPeriod period={period} today={today} /> : undefined}
         actions={aiEnabled ? <KbReindexAiButton /> : undefined}
       />
 
@@ -209,7 +217,13 @@ export default async function KbOverviewPage({
       ) : (
         <>
           {showMetrics && (
-            <MetricStrip label={`Показатели за период: ${kbOverviewPeriodLabel(period)}`}>
+            <MetricStrip
+              label={
+                periodMatters
+                  ? `Показатели за период: ${kbOverviewPeriodLabel(period)}`
+                  : "Показатели обязательного чтения"
+              }
+            >
               {blocks.attention && (
                 <Metric
                   primary
@@ -225,12 +239,11 @@ export default async function KbOverviewPage({
               {blocks.metrics && (
                 <Metric
                   label="Читали"
-                  value={summary?.summary ? summary.summary.activeReaders : "—"}
+                  value={summary?.summary ? summary.summary.rosterReaders : "—"}
                   hint={
                     summary?.summary
-                      ? roster !== null
-                        ? `из ${countRu(roster, "сотрудника", "сотрудников", "сотрудников")}`
-                        : "сотрудников за период"
+                      ? // Читатели — из нынешнего состава, иначе «12 из 10».
+                        `из ${countRu(summary.summary.rosterTotal, "сотрудника", "сотрудников", "сотрудников")}`
                       : "Нет данных"
                   }
                 />
@@ -250,7 +263,7 @@ export default async function KbOverviewPage({
                 <Metric
                   label="Изменений"
                   value={changes ?? "—"}
-                  hint={changes === null ? "Нет данных" : "правки, перемещения и удаления"}
+                  hint={changes === null ? "Нет данных" : "записей в журнале за период"}
                 />
               )}
             </MetricStrip>
@@ -258,7 +271,17 @@ export default async function KbOverviewPage({
 
           {/* «Требует внимания» — на всю ширину: у строк по две кнопки, в
               половине экрана текст сжимался бы в столбик. */}
-          {blocks.attention && <KbOverviewAttention reading={reading} staleCount={staleCount} />}
+          {blocks.attention && (
+            <KbOverviewAttention
+              reading={reading}
+              staleCount={staleCount}
+              stalePagesHref={
+                blocks.pagesView
+                  ? `/knowledge/overview?view=pages&sort=updated&${kbOverviewPeriodQuery(period)}`
+                  : null
+              }
+            />
+          )}
 
           {(blocks.popular || blocks.changes) && (
             <div className={blocks.popular && blocks.changes ? "grid items-start gap-6 lg:grid-cols-2" : "grid gap-6"}>

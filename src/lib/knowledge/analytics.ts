@@ -9,10 +9,11 @@ import type { LooseQuery } from "@/lib/supabase/loose";
 //
 // Связка: client-side `useKbPageViewTracker` (см. соседний
 // use-page-view-tracker.ts) пишет сессии через `recordKbPageView` →
-// RPC `kb_record_page_view` (миграция 077). Admin-dashboard читает
-// аггрегаты через `getKbAnalyticsTopPages` / `getKbAnalyticsTopUsers`
-// / `getKbAnalyticsPageViewers` — все три гейтятся `kb.view_analytics`
-// на уровне RLS (миграция 077, см. SELECT-policy).
+// RPC `kb_record_page_view` (миграция 077). «Обзор» читает суммы через
+// RPC kb_analytics_page_stats / kb_analytics_month_stats /
+// kb_analytics_window_totals (миграция 416), «Статистика страницы» —
+// `getKbAnalyticsPageViewers`. Всё под `kb.view_analytics` (RLS сессий и
+// явная проверка права в итогах окна).
 // ============================================================
 
 /** Запись one-shot сессии просмотра. Вызывается из client'а на
@@ -69,8 +70,10 @@ type SessionRow = {
   duration_seconds: number;
 };
 
-/** Все сессии просмотра за окно. PostgREST отдаёт не больше 1000 строк и
- *  молча режет остальное — читаем постранично (CLAUDE.md, fetchAllRows). */
+/** Сессии одной страницы за окно — для «Статистики страницы» (их немного,
+ *  индекс page_id + started_at). PostgREST отдаёт не больше 1000 строк и
+ *  молча режет остальное — читаем постранично (CLAUDE.md, fetchAllRows).
+ *  Суммы по всем страницам считает база: kb_analytics_*. */
 async function loadSessions(
   window: KbAnalyticsWindow,
   pageId?: string,
@@ -118,40 +121,34 @@ export interface KbAnalyticsTopPage {
 }
 
 /** Страницы по суммарному времени чтения за окно («Популярное за период»,
- *  вид «По страницам»). Гейт `kb.view_analytics` — RLS на сессиях. */
+ *  вид «По страницам»). Суммы считает база (kb_analytics_page_stats), RLS
+ *  сессий — `kb.view_analytics`. */
 export async function getKbAnalyticsTopPages(args: {
   window: KbAnalyticsWindow;
   /** Без лимита — все читавшиеся страницы. */
   limit?: number;
 }): Promise<{ rows: KbAnalyticsTopPage[]; error: string | null }> {
   try {
-    const sessions = await loadSessions(args.window);
-    const byPage = new Map<string, { total: number; users: Set<string>; sessions: number }>();
-    for (const r of sessions) {
-      let entry = byPage.get(r.page_id);
-      if (!entry) {
-        entry = { total: 0, users: new Set(), sessions: 0 };
-        byPage.set(r.page_id, entry);
-      }
-      entry.total += r.duration_seconds;
-      entry.users.add(r.user_id);
-      entry.sessions += 1;
-    }
-    const sorted = [...byPage.entries()].sort((a, b) => b[1].total - a[1].total);
-    const ids = (args.limit ? sorted.slice(0, args.limit) : sorted).map(([id]) => id);
-    if (ids.length === 0) return { rows: [], error: null };
-    const meta = await loadPageMeta(ids);
-    const rows = ids.flatMap((id): KbAnalyticsTopPage[] => {
-      const m = meta.get(id);
-      const stats = byPage.get(id)!;
+    const supabase = await createClient();
+    const { data, error } = await supabase.rpc("kb_analytics_page_stats", {
+      p_since: args.window.sinceISO,
+      p_until: args.window.untilISO,
+    });
+    if (error) throw new Error(error.message);
+    const sorted = [...(data ?? [])].sort((a, b) => b.total_seconds - a.total_seconds);
+    const top = args.limit ? sorted.slice(0, args.limit) : sorted;
+    if (top.length === 0) return { rows: [], error: null };
+    const meta = await loadPageMeta(top.map((r) => r.page_id));
+    const rows = top.flatMap((r): KbAnalyticsTopPage[] => {
+      const m = meta.get(r.page_id);
       if (!m) return [];
       return [
         {
-          page_id: id,
+          page_id: r.page_id,
           ...m,
-          total_seconds: stats.total,
-          unique_viewers: stats.users.size,
-          session_count: stats.sessions,
+          total_seconds: Number(r.total_seconds),
+          unique_viewers: Number(r.readers),
+          session_count: Number(r.sessions),
         },
       ];
     });
@@ -222,56 +219,40 @@ export async function getKbAnalyticsPageViewers(args: {
 }
 
 export interface KbAnalyticsSummary {
-  /** Живых (не удалённых) страниц всего. */
-  totalPages: number;
-  /** Создано за окно. */
-  newInPeriod: number;
-  /** Уникальных читателей за окно. */
-  activeReaders: number;
+  /** Уникальных читателей за окно (все, включая уволенных). */
+  readers: number;
+  /** Из них — в нынешнем составе (активные, с доступом к базе). */
+  rosterReaders: number;
+  /** Размер состава. */
+  rosterTotal: number;
   /** Суммарное время чтения за окно, секунд. */
   totalSeconds: number;
   /** Сессий просмотра за окно. */
   sessions: number;
 }
 
-/** Сводка за окно для показателей «Обзора». */
+/** Итоги окна для показателей «Обзора» (kb_analytics_window_totals). */
 export async function getKbAnalyticsSummary(args: {
   window: KbAnalyticsWindow;
 }): Promise<{ summary: KbAnalyticsSummary | null; error: string | null }> {
-  try {
-    const supabase = await createClient();
-    let newQ = supabase
-      .from("kb_pages")
-      .select("id", { count: "exact", head: true })
-      .is("deleted_at", null)
-      .gte("created_at", args.window.sinceISO);
-    if (args.window.untilISO) newQ = newQ.lt("created_at", args.window.untilISO);
-    const [totalRes, newRes, sessions] = await Promise.all([
-      supabase.from("kb_pages").select("id", { count: "exact", head: true }).is("deleted_at", null),
-      newQ,
-      loadSessions(args.window),
-    ]);
-    const firstError = totalRes.error?.message ?? newRes.error?.message ?? null;
-    if (firstError) return { summary: null, error: firstError };
-    const readers = new Set<string>();
-    let totalSeconds = 0;
-    for (const s of sessions) {
-      readers.add(s.user_id);
-      totalSeconds += s.duration_seconds;
-    }
-    return {
-      summary: {
-        totalPages: totalRes.count ?? 0,
-        newInPeriod: newRes.count ?? 0,
-        activeReaders: readers.size,
-        totalSeconds,
-        sessions: sessions.length,
-      },
-      error: null,
-    };
-  } catch (e) {
-    return { summary: null, error: (e as Error).message };
-  }
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("kb_analytics_window_totals", {
+    p_since: args.window.sinceISO,
+    p_until: args.window.untilISO,
+  });
+  if (error) return { summary: null, error: error.message };
+  const row = data?.[0];
+  if (!row) return { summary: null, error: null };
+  return {
+    summary: {
+      readers: Number(row.readers),
+      rosterReaders: Number(row.roster_readers),
+      rosterTotal: Number(row.roster_total),
+      totalSeconds: Number(row.total_seconds),
+      sessions: Number(row.sessions),
+    },
+    error: null,
+  };
 }
 
 export interface KbAnalyticsMonthlyPoint {
@@ -305,19 +286,11 @@ export async function getKbMonthlyTrend(args?: {
         if (createdMonth > startMonth) startMonth = createdMonth;
       }
     }
-    const sessions = await loadSessions({ sinceISO: startMonth.toISOString(), untilISO: null });
-    const agg = new Map<string, { total: number; sessions: number; readers: Set<string> }>();
-    for (const r of sessions) {
-      const key = monthKeyOf(new Date(r.started_at));
-      let e = agg.get(key);
-      if (!e) {
-        e = { total: 0, sessions: 0, readers: new Set() };
-        agg.set(key, e);
-      }
-      e.total += r.duration_seconds;
-      e.sessions += 1;
-      e.readers.add(r.user_id);
-    }
+    const { data, error } = await supabase.rpc("kb_analytics_month_stats", {
+      p_since: startMonth.toISOString(),
+    });
+    if (error) throw new Error(error.message);
+    const agg = new Map((data ?? []).map((r) => [r.month, r]));
     const span =
       (now.getUTCFullYear() - startMonth.getUTCFullYear()) * 12 +
       (now.getUTCMonth() - startMonth.getUTCMonth()) +
@@ -328,9 +301,9 @@ export async function getKbMonthlyTrend(args?: {
       const e = agg.get(key);
       rows.push({
         monthKey: key,
-        totalSeconds: e?.total ?? 0,
-        sessionCount: e?.sessions ?? 0,
-        uniqueReaders: e?.readers.size ?? 0,
+        totalSeconds: Number(e?.total_seconds ?? 0),
+        sessionCount: Number(e?.sessions ?? 0),
+        uniqueReaders: Number(e?.readers ?? 0),
       });
     }
     return { rows, error: null };

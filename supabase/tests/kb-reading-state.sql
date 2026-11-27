@@ -78,12 +78,15 @@ begin
   if o.read_count <> 1 or o.current_version <> 2 then raise exception 'Неверный счёт: % из %, версия %', o.read_count, o.total, o.current_version; end if;
   -- Вызывать отозванную функцию под `set local role` из psql нельзя:
   -- локальный Postgres падает с segfault (через PostgREST — обычная 42501).
-  -- Доступ к составу проверяется has_function_privilege в разделе 6.
+  -- Доступ к составу проверяется has_function_privilege в разделе 7.
 end $$;
 do $$ declare n integer;
 begin
   n := public.kb_request_reread(current_setting('qa.kb_page')::uuid);
   if n <> 1 then raise exception 'Попросить перечитать уведомило %, ждали 1', n; end if;
+  -- Повторный вызов без новой правки — холостой: 0 и без записи в журнал.
+  n := public.kb_request_reread(current_setting('qa.kb_page')::uuid);
+  if n <> 0 then raise exception 'Повторная просьба уведомила %', n; end if;
 end $$;
 
 select set_config('request.jwt.claim.sub', current_setting('qa.kb_reader'), true), set_config('app.ctx_ready', '0', true);
@@ -105,9 +108,16 @@ do $$ begin
          and user_id = current_setting('qa.kb_owner')::uuid) then
     raise exception 'Менеджер уведомил сам себя';
   end if;
-  if not exists (select 1 from public.audit_logs
-       where action_code = 'kb_page.reread_requested' and entity_id = current_setting('qa.kb_page')::uuid) then
-    raise exception 'Нет записи в журнале о перечитывании';
+  if (select count(*) from public.audit_logs
+       where action_code = 'kb_page.reread_requested' and entity_id = current_setting('qa.kb_page')::uuid) <> 1 then
+    raise exception 'В журнале не одна запись о перечитывании';
+  end if;
+  -- Назначение обязательной уведомило состав без уволенного.
+  if not exists (select 1 from public.notifications where type = 'kb.required_reading_assigned'
+       and entity_id = current_setting('qa.kb_page')::uuid and user_id = current_setting('qa.kb_idle')::uuid)
+     or exists (select 1 from public.notifications where type = 'kb.required_reading_assigned'
+       and entity_id = current_setting('qa.kb_page')::uuid and user_id = current_setting('qa.kb_fired')::uuid) then
+    raise exception 'Назначение обязательной уведомило не тот состав';
   end if;
   -- Читатель перечитал версию 2, потом страницу снова поправили.
   insert into public.kb_page_reads(user_id, page_id, account_id, read_version)
@@ -123,11 +133,43 @@ do $$ declare o record;
 begin
   select * into o from public.kb_required_reading_overview(current_setting('qa.kb_page')::uuid);
   if not o.changed_after_read then raise exception 'Правка после перечитывания не видна'; end if;
+  if o.viewer_stale then raise exception 'Менеджер не читал, а помечен как прочитавший старую версию'; end if;
   perform public.kb_dismiss_reread(current_setting('qa.kb_page')::uuid);
   select * into o from public.kb_required_reading_overview(current_setting('qa.kb_page')::uuid);
   if o.changed_after_read then raise exception '«Не нужно» не спрятало правку'; end if;
 end $$;
 reset role;
+-- Автор продолжил править в той же сессии: версия та же, но её время новее.
+update public.kb_page_versions set updated_at = now() + interval '1 minute'
+ where page_id = current_setting('qa.kb_page')::uuid and version_number = 3;
+set local role authenticated;
+select set_config('request.jwt.claim.sub', current_setting('qa.kb_owner'), true), set_config('app.ctx_ready', '0', true);
+do $$ declare o record;
+begin
+  select * into o from public.kb_required_reading_overview(current_setting('qa.kb_page')::uuid);
+  if not o.changed_after_read then raise exception 'Правка в той же сессии после «Не нужно» не видна'; end if;
+  perform public.kb_dismiss_reread(current_setting('qa.kb_page')::uuid);
+end $$;
+reset role;
+do $$ begin
+  if (select count(*) from public.audit_logs where action_code = 'kb_page.reread_dismissed'
+       and entity_id = current_setting('qa.kb_page')::uuid) <> 2 then
+    raise exception 'Записей «Не нужно» в журнале не две';
+  end if;
+end $$;
+set local role authenticated;
+select set_config('request.jwt.claim.sub', current_setting('qa.kb_owner'), true), set_config('app.ctx_ready', '0', true);
+do $$ begin
+  -- Повторное «Не нужно» без новой правки — холостое, журнал не растёт.
+  perform public.kb_dismiss_reread(current_setting('qa.kb_page')::uuid);
+end $$;
+reset role;
+do $$ begin
+  if (select count(*) from public.audit_logs where action_code = 'kb_page.reread_dismissed'
+       and entity_id = current_setting('qa.kb_page')::uuid) <> 2 then
+    raise exception 'Холостое «Не нужно» записалось в журнал';
+  end if;
+end $$;
 insert into public.kb_page_versions(page_id, account_id, version_number, title, content)
   select current_setting('qa.kb_page')::uuid, current_setting('qa.kb_account')::uuid, 4, 'QA обязательная', '[]';
 set local role authenticated;
@@ -189,15 +231,46 @@ begin
   exception when raise_exception then
     if sqlerrm <> 'Нет права управлять обязательным чтением' then raise; end if;
   end;
+  begin
+    perform public.kb_dismiss_reread(current_setting('qa.kb_page')::uuid);
+    raise exception 'Сотрудник без права отметил «Не нужно»';
+  exception when raise_exception then
+    if sqlerrm <> 'Нет права управлять обязательным чтением' then raise; end if;
+  end;
   if exists (select 1 from public.kb_required_reading_overview(current_setting('qa.kb_page')::uuid)) then
     raise exception 'Обзор отдаётся без права';
+  end if;
+  if exists (select 1 from public.kb_list_required_reading_stats(current_setting('qa.kb_page')::uuid)) then
+    raise exception '«Кто прочитал» отдаётся без права';
+  end if;
+  if exists (select 1 from public.kb_analytics_window_totals(now() - interval '1 day', null)) then
+    raise exception 'Итоги аналитики отдаются без права';
   end if;
   select to_jsonb(s) into after from public.kb_page_reading_state s where page_id = current_setting('qa.kb_page')::uuid;
   if before is distinct from after then raise exception 'Состояние изменилось без права'; end if;
 end $$;
 reset role;
 
--- ── 6. Права на функции ──
+-- ── 6. Свой старый прочитанный, итоги аналитики по составу ──
+insert into public.kb_page_reads(user_id, page_id, account_id, read_version)
+  select current_setting('qa.kb_owner')::uuid, current_setting('qa.kb_page')::uuid, current_setting('qa.kb_account')::uuid, 3;
+insert into public.kb_page_view_sessions(account_id, page_id, user_id, started_at, ended_at, duration_seconds)
+  select current_setting('qa.kb_account')::uuid, current_setting('qa.kb_page')::uuid, u, now() - interval '1 hour', now() - interval '50 minutes', 600
+  from unnest(array[current_setting('qa.kb_reader')::uuid, current_setting('qa.kb_fired')::uuid]) u;
+set local role authenticated;
+select set_config('request.jwt.claim.sub', current_setting('qa.kb_owner'), true), set_config('app.ctx_ready', '0', true);
+do $$ declare o record; t record;
+begin
+  select * into o from public.kb_required_reading_overview(current_setting('qa.kb_page')::uuid);
+  if not o.viewer_stale then raise exception 'Свой прочитанный старой версии не виден'; end if;
+  select * into t from public.kb_analytics_window_totals(now() - interval '1 day', null);
+  if t.readers < 2 or t.roster_readers >= t.readers then
+    raise exception 'Уволенный читатель посчитан в составе: % из %', t.roster_readers, t.readers;
+  end if;
+end $$;
+reset role;
+
+-- ── 7. Права на функции ──
 do $$ begin
   if has_function_privilege('anon', 'public.kb_remind_unread(uuid)', 'execute')
      or has_function_privilege('anon', 'public.kb_request_reread(uuid)', 'execute')

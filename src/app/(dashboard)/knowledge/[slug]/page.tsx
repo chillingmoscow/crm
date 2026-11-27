@@ -180,9 +180,6 @@ export default async function KbPageView({ params }: PageProps) {
     myReadAt: pageViewData?.my_read_at ?? null,
     needsReread: pageViewData?.needs_reread ?? false,
   };
-  const selfStale =
-    readStatus.myReadAt !== null &&
-    (pageViewData?.my_read_version ?? 0) < (pageViewData?.current_version ?? 1);
   // Накопленное активное время текущего юзера на странице — нужно
   // только для read-gate на ещё-не-подтверждённой обязательной
   // странице (иначе лишний RPC). Read-gate стартует с этого значения,
@@ -208,7 +205,7 @@ export default async function KbPageView({ params }: PageProps) {
                 // staleCount уже без самого руководителя: себе уведомлений
                 // нет, но его прочтение старой версии тоже сбросится.
                 staleOthers: page.staleCount,
-                selfStale,
+                selfStale: page.viewerStale,
               }
             : null,
         )

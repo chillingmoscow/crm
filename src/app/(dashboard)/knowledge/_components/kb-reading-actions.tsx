@@ -8,7 +8,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/shared/confirm-dialog";
 import { unwrapAction } from "@/lib/actions/result";
-import { countRu, pluralRu } from "@/lib/format/plural";
+import { countRu } from "@/lib/format/plural";
+import { kbRereadConfirmText } from "@/lib/knowledge/reading-copy";
 import {
   dismissKbReread,
   remindKbUnread,
@@ -35,6 +36,7 @@ export function KbReadingActions({
   title,
   remindCount,
   staleCount,
+  viewerStale = false,
   changedAfterRead,
   remindedAt,
   showDismiss = false,
@@ -46,6 +48,8 @@ export function KbReadingActions({
   remindCount: number;
   /** Скольких сбросит и уведомит «Попросить перечитать». */
   staleCount: number;
+  /** Сам руководитель прочитал старую версию — его прочтение тоже сбросится. */
+  viewerStale?: boolean;
   changedAfterRead: boolean;
   remindedAt: string | null;
   /** «Не нужно» рядом с «Попросить перечитать» (в «Обзоре»). */
@@ -80,7 +84,7 @@ export function KbReadingActions({
   const onReread = async () => {
     const ok = await confirm({
       title: `Попросить перечитать ${name}?`,
-      description: `${people(staleCount)} снова ${pluralRu(staleCount, "увидит", "увидят", "увидят")} её в «К прочтению» и ${pluralRu(staleCount, "получит", "получат", "получат")} уведомление.`,
+      description: kbRereadConfirmText(staleCount, viewerStale),
       confirmLabel: "Попросить перечитать",
       tone: "warning",
     });

@@ -7,6 +7,7 @@ import { KbReadingActions } from "@/app/(dashboard)/knowledge/_components/kb-rea
 import { Button } from "@/components/ui/button";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 import { countRu } from "@/lib/format/plural";
+import { kbStaleReadersText } from "@/lib/knowledge/reading-copy";
 import type { KbAnalyticsTopPage } from "@/lib/knowledge/analytics";
 import type { KbRequiredReadingOverviewRow } from "@/lib/knowledge/required-reading";
 import { cn } from "@/lib/utils";
@@ -63,13 +64,17 @@ const pageName = (title: string) => `«${title.trim() || "Без названи�
 export function KbOverviewAttention({
   reading,
   staleCount,
+  stalePagesHref,
 }: {
   reading: KbRequiredReadingOverviewRow[];
   staleCount: number;
+  /** Вид «По страницам» (с аналитикой); без него строки «полгода» нет. */
+  stalePagesHref: string | null;
 }) {
+  const showStale = staleCount > 0 && stalePagesHref !== null;
   const changed = reading.filter((r) => r.changedAfterRead);
   const unread = reading.filter((r) => r.remindCount > 0);
-  const total = changed.length + unread.length + (staleCount > 0 ? 1 : 0);
+  const total = changed.length + unread.length + (showStale ? 1 : 0);
   let index = 0;
 
   return (
@@ -102,13 +107,14 @@ export function KbOverviewAttention({
                   изменена после прочтения
                 </>
               }
-              detail={`Прочитали прошлую версию: ${people(r.staleCount)}`}
+              detail={`Прочитали прошлую версию: ${kbStaleReadersText(r.staleCount, r.viewerStale)}`}
               action={
                 <KbReadingActions
                   pageId={r.pageId}
                   title={r.title}
                   remindCount={0}
                   staleCount={r.staleCount}
+                  viewerStale={r.viewerStale}
                   changedAfterRead
                   remindedAt={r.remindedAt}
                   showDismiss
@@ -143,7 +149,7 @@ export function KbOverviewAttention({
               }
             />
           ))}
-          {staleCount > 0 && (
+          {showStale && (
             <AttentionRow
               index={index++}
               icon={Clock}
@@ -152,7 +158,7 @@ export function KbOverviewAttention({
               detail="Проверьте, не устарели ли регламенты"
               action={
                 <Button asChild variant="outline" size="sm">
-                  <Link href="/knowledge/overview?view=pages&sort=updated">Показать</Link>
+                  <Link href={stalePagesHref}>Показать</Link>
                 </Button>
               }
             />

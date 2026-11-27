@@ -100,3 +100,14 @@ test("kbOverviewPeriodLabel и адрес", () => {
   assert.equal(kbOverviewPeriodLabel({ kind: "month", start: "2026-11" }), "Ноябрь 2026");
   assert.equal(kbOverviewPeriodQuery({ kind: "month", start: "2026-11" }), "period=month&from=2026-11");
 });
+
+test("parseKbOverviewPeriod: будущий период из адреса — текущий", () => {
+  assert.deepEqual(parseKbOverviewPeriod({ period: "week", from: "2027-03-01" }, "2026-11-27"), {
+    kind: "week",
+    start: "2026-11-23",
+  });
+  assert.deepEqual(parseKbOverviewPeriod({ period: "month", from: "2026-12" }, "2026-11-27"), {
+    kind: "month",
+    start: "2026-11",
+  });
+});

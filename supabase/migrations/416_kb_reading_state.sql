@@ -29,6 +29,10 @@ create table public.kb_page_reading_state (
   account_id uuid not null,
   reread_from_version integer check (reread_from_version >= 1),
   reread_dismissed_version integer check (reread_dismissed_version >= 1),
+  -- «Не нужно» запоминает и время последней правки, которую видел
+  -- руководитель: правка в той же сессии автора не создаёт новую версию
+  -- (сворачивается в текущую), но двигает её updated_at.
+  reread_dismissed_at timestamptz,
   reminded_at timestamptz,
   updated_at timestamptz not null default now(),
   constraint kb_page_reading_state_page_fkey
@@ -277,8 +281,8 @@ returns table (
   stale_count integer,
   remind_count integer,
   changed_after_read boolean,
-  reminded_at timestamptz,
-  last_edited_at timestamptz
+  viewer_stale boolean,
+  reminded_at timestamptz
 )
 language plpgsql
 stable
@@ -309,6 +313,7 @@ begin
     select kp.id, kp.slug, kp.title, kp.icon, kp.icon_color,
            coalesce(s.reread_from_version, 1) as from_v,
            s.reread_dismissed_version as dismissed_v,
+           s.reread_dismissed_at as dismissed_at,
            s.reminded_at as reminded
       from public.kb_pages kp
       left join public.kb_page_reading_state s on s.page_id = kp.id
@@ -356,15 +361,25 @@ begin
            where l2.page_id = p.id and l2.user_id = ro.user_id
              and l2.read_version >= p.from_v
         ))::integer,
+    -- Изменена после прочтения: есть действующее прочтение старше текущей
+    -- версии, и «Не нужно» не нажимали после последней правки. Единственное
+    -- место этого правила — на нём стоят «Попросить перечитать» и «Не нужно».
     coalesce(bool_or(l.read_version >= p.from_v and l.read_version < coalesce(v.cur, 1)), false)
-      and coalesce(v.cur, 1) > coalesce(p.dismissed_v, 0),
-    p.reminded,
-    v.last_edit
+      and (
+        p.dismissed_v is null
+        or coalesce(v.cur, 1) > p.dismissed_v
+        or v.last_edit > p.dismissed_at
+      ),
+    -- Сам смотрящий прочитал старую версию: его прочтение тоже сбросится.
+    coalesce(bool_or(
+      l.user_id = v_uid and l.read_version >= p.from_v and l.read_version < coalesce(v.cur, 1)
+    ), false),
+    p.reminded
   from pages p
   left join versions v on v.page_id = p.id
   left join latest l on l.page_id = p.id
   group by p.id, p.slug, p.title, p.icon, p.icon_color, p.from_v, p.dismissed_v,
-           p.reminded, v.cur, v.last_edit
+           p.dismissed_at, p.reminded, v.cur, v.last_edit
   order by p.title;
 end;
 $$;
@@ -432,6 +447,12 @@ begin
    where page_id = p_page_id
      for update;
 
+  -- Нечего сбрасывать (порог уже на текущей версии) — ни состояния, ни
+  -- журнала: повторный или прямой вызов не засоряет журнал.
+  if v_current <= v_from then
+    return 0;
+  end if;
+
   -- Уведомляем тех, у кого прочтение действовало и было старше текущей
   -- версии: они снова увидят страницу в «К прочтению».
   insert into public.notifications (
@@ -465,6 +486,7 @@ begin
   update public.kb_page_reading_state
      set reread_from_version = v_current,
          reread_dismissed_version = null,
+         reread_dismissed_at = null,
          updated_at = now()
    where page_id = p_page_id;
 
@@ -489,15 +511,27 @@ as $$
 declare
   v_page public.kb_pages := public.kb_reading_action_page(p_page_id);
   v_current integer;
+  v_last_edit timestamptz;
+  v_changed boolean;
 begin
-  select coalesce(max(version_number), 1) into v_current
+  -- Правило «изменена после прочтения» — из сводки (одно место). Нечего
+  -- отмечать — ни состояния, ни журнала.
+  select o.changed_after_read, o.current_version into v_changed, v_current
+    from public.kb_required_reading_overview(p_page_id) o;
+  if not coalesce(v_changed, false) then
+    return;
+  end if;
+  select max(updated_at) into v_last_edit
     from public.kb_page_versions
    where page_id = p_page_id;
 
-  insert into public.kb_page_reading_state (page_id, account_id, reread_dismissed_version)
-    values (p_page_id, v_page.account_id, v_current)
+  insert into public.kb_page_reading_state (
+    page_id, account_id, reread_dismissed_version, reread_dismissed_at
+  )
+    values (p_page_id, v_page.account_id, v_current, v_last_edit)
     on conflict (page_id) do update
       set reread_dismissed_version = excluded.reread_dismissed_version,
+          reread_dismissed_at = excluded.reread_dismissed_at,
           updated_at = now();
 
   perform public.log_audit(
@@ -583,7 +617,151 @@ $$;
 revoke all on function public.kb_remind_unread(uuid) from public, anon;
 grant execute on function public.kb_remind_unread(uuid) to authenticated;
 
--- ── 10. Проверка прав ────────────────────────────────────────
+-- ── 10. Назначение обязательной: уведомление тому же составу ──
+-- Раньше триггер выбирал получателей сам (status='active', без проверки
+-- увольнения и архивных заведений): уволенный получал «Требуется прочесть»,
+-- но в счёт, напоминания и «Кто прочитал» не попадал. Теперь — общий состав.
+create or replace function public.kb_notify_required_reading()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_catalog
+as $$
+declare
+  v_uid uuid := auth.uid();
+begin
+  if v_uid is null then
+    return NEW;
+  end if;
+  if NEW.required_reading is not true then
+    return NEW;
+  end if;
+  if TG_OP = 'UPDATE' and coalesce(OLD.required_reading, false) = true then
+    return NEW;
+  end if;
+
+  insert into public.notifications (
+    user_id, type, title, body, link,
+    category, actor_user_id, entity_type, entity_id, payload
+  )
+  select
+    ro.user_id,
+    'kb.required_reading_assigned',
+    'Требуется прочесть: ' || coalesce(NEW.title, 'без названия'),
+    'Страница помечена как обязательная к прочтению. Ознакомьтесь и подтвердите прочтение.',
+    '/knowledge/' || NEW.slug,
+    'kb', v_uid, 'kb_page', NEW.id,
+    jsonb_build_object(
+      'preview', substr(coalesce(NEW.plain_text, ''), 1, 180),
+      'preview_kind', 'page_excerpt',
+      'page_title', coalesce(NEW.title, 'без названия'),
+      'page_icon', NEW.icon,
+      'page_icon_color', NEW.icon_color
+    )
+  from public.kb_required_reading_roster(NEW.account_id) as ro(user_id)
+  where ro.user_id <> v_uid;
+
+  return NEW;
+end;
+$$;
+
+revoke all on function public.kb_notify_required_reading() from public, anon, authenticated;
+
+-- ── 11. Аналитика «Обзора»: суммы в базе, а не сырые сессии ───
+-- Раньше страница тянула все сессии за период (и за год для тренда) и
+-- складывала их в приложении. Здесь — те же суммы одним запросом.
+-- SECURITY INVOKER: действует RLS сессий (kb.view_analytics в аккаунте);
+-- явный фильтр по аккаунту даёт планировщику индекс (account_id, started_at).
+create or replace function public.kb_analytics_page_stats(p_since timestamptz, p_until timestamptz)
+returns table (page_id uuid, total_seconds bigint, sessions bigint, readers bigint)
+language sql
+stable
+security invoker
+set search_path = public, pg_catalog
+as $$
+  select s.page_id,
+         coalesce(sum(s.duration_seconds), 0)::bigint,
+         count(*)::bigint,
+         count(distinct s.user_id)::bigint
+    from public.kb_page_view_sessions s
+   where s.account_id = public.get_active_account_id()
+     and s.started_at >= p_since
+     and (p_until is null or s.started_at < p_until)
+   group by s.page_id
+$$;
+
+create or replace function public.kb_analytics_month_stats(p_since timestamptz)
+returns table (month text, total_seconds bigint, sessions bigint, readers bigint)
+language sql
+stable
+security invoker
+set search_path = public, pg_catalog
+as $$
+  select to_char(date_trunc('month', s.started_at at time zone 'UTC'), 'YYYY-MM'),
+         coalesce(sum(s.duration_seconds), 0)::bigint,
+         count(*)::bigint,
+         count(distinct s.user_id)::bigint
+    from public.kb_page_view_sessions s
+   where s.account_id = public.get_active_account_id()
+     and s.started_at >= p_since
+   group by 1
+$$;
+
+-- Итоги окна. SECURITY DEFINER — чтобы сравнить читателей с составом
+-- (функция состава пользователю недоступна); право проверяется явно.
+create or replace function public.kb_analytics_window_totals(p_since timestamptz, p_until timestamptz)
+returns table (
+  readers bigint,
+  roster_readers bigint,
+  roster_total bigint,
+  total_seconds bigint,
+  sessions bigint
+)
+language plpgsql
+stable
+security definer
+set search_path = public, pg_catalog
+as $$
+declare
+  v_account_id uuid := public.get_active_account_id();
+begin
+  if v_account_id is null or auth.uid() is null then
+    return;
+  end if;
+  if not public.has_permission('kb.view_analytics') then
+    return;
+  end if;
+  return query
+  with roster as (
+    select r as user_id from public.kb_required_reading_roster(v_account_id) r
+  ),
+  sess as (
+    select s.user_id, s.duration_seconds
+      from public.kb_page_view_sessions s
+     where s.account_id = v_account_id
+       and s.started_at >= p_since
+       and (p_until is null or s.started_at < p_until)
+  )
+  select
+    (select count(distinct user_id) from sess)::bigint,
+    (select count(distinct sess.user_id) from sess join roster using (user_id))::bigint,
+    (select count(*) from roster)::bigint,
+    (select coalesce(sum(duration_seconds), 0) from sess)::bigint,
+    (select count(*) from sess)::bigint;
+end;
+$$;
+
+revoke all on function public.kb_analytics_page_stats(timestamptz, timestamptz) from public, anon;
+revoke all on function public.kb_analytics_month_stats(timestamptz) from public, anon;
+revoke all on function public.kb_analytics_window_totals(timestamptz, timestamptz) from public, anon;
+grant execute on function public.kb_analytics_page_stats(timestamptz, timestamptz) to authenticated;
+grant execute on function public.kb_analytics_month_stats(timestamptz) to authenticated;
+grant execute on function public.kb_analytics_window_totals(timestamptz, timestamptz) to authenticated;
+
+-- ── 12. «Мои недавние» убраны с главной — функция без вызовов ──
+drop function if exists public.kb_get_my_recently_viewed(integer);
+
+-- ── 13. Проверка прав ────────────────────────────────────────
 do $$
 begin
   if has_function_privilege('authenticated', 'public.kb_required_reading_roster(uuid)', 'execute')
@@ -597,9 +775,20 @@ begin
      or has_function_privilege('anon', 'public.kb_list_required_reading_stats(uuid)', 'execute') then
     raise exception '416: функции обязательного чтения доступны анониму';
   end if;
+  if has_function_privilege('anon', 'public.kb_analytics_page_stats(timestamptz, timestamptz)', 'execute')
+     or has_function_privilege('anon', 'public.kb_analytics_month_stats(timestamptz)', 'execute')
+     or has_function_privilege('anon', 'public.kb_analytics_window_totals(timestamptz, timestamptz)', 'execute')
+     or has_function_privilege('authenticated', 'public.kb_notify_required_reading()', 'execute') then
+    raise exception '416: аналитика или триггер доступны лишним ролям';
+  end if;
   if not has_function_privilege('authenticated', 'public.kb_request_reread(uuid)', 'execute')
      or not has_function_privilege('authenticated', 'public.kb_remind_unread(uuid)', 'execute')
-     or not has_function_privilege('authenticated', 'public.kb_list_required_reading_stats(uuid)', 'execute') then
+     or not has_function_privilege('authenticated', 'public.kb_dismiss_reread(uuid)', 'execute')
+     or not has_function_privilege('authenticated', 'public.kb_required_reading_overview(uuid)', 'execute')
+     or not has_function_privilege('authenticated', 'public.kb_list_required_reading_stats(uuid)', 'execute')
+     or not has_function_privilege('authenticated', 'public.kb_analytics_page_stats(timestamptz, timestamptz)', 'execute')
+     or not has_function_privilege('authenticated', 'public.kb_analytics_month_stats(timestamptz)', 'execute')
+     or not has_function_privilege('authenticated', 'public.kb_analytics_window_totals(timestamptz, timestamptz)', 'execute') then
     raise exception '416: у пользователя нет доступа к функциям обязательного чтения';
   end if;
   if has_table_privilege('authenticated', 'public.kb_page_reading_state', 'insert')

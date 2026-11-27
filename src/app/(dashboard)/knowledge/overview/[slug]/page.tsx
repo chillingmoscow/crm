@@ -36,7 +36,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
   const { row } = await getKbPageBySlugCached(slug);
-  return { title: `Статистика — ${row?.title?.trim() || "Без названия"}` };
+  return { title: `Статистика «${row?.title?.trim() || "Без названия"}»` };
 }
 
 function minutes(seconds: number): string {

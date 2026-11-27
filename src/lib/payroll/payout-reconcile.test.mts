@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 import { reconcileDay, type Withdrawal } from "./payout-reconcile.ts";
 
 const tips = /ча[йеюёвы]/iu;
+const other = [/инкас|инк.*ация/iu, /такси/iu];
 const day = (withdrawals: Withdrawal[], issued = 110000, names = ["Гамлет Арутюнян", "Анна Иванова"]) =>
-  reconcileDay({ issued, withdrawals, names, tips });
+  reconcileDay({ issued, withdrawals, names, tips, other });
 
 test("сверка: одно изъятие на всю сумму дня — сошлось", () => {
   const r = day([
@@ -66,4 +67,9 @@ test("сверка: часть имени внутри другого слова
 test("сверка: копейки сравниваются точно", () => {
   assert.equal(day([{ id: 50, amount: 7500.5, comment: "" }], 7500.5).state, "matched");
   assert.equal(day([{ id: 51, amount: 7500, comment: "" }], 7500.5).state, "mismatch");
+});
+
+test("сверка: инкассация или такси на ту же сумму — не зарплата", () => {
+  assert.equal(day([{ id: 60, amount: 110000, comment: "инкассация в сейф" }]).state, "mismatch");
+  assert.equal(day([{ id: 61, amount: 110000, comment: "такси" }]).state, "mismatch");
 });

@@ -40,11 +40,15 @@ export function reconcileDay(input: {
   names: string[];
   /** Изъятие чаевых (как в синке кассовых операций). */
   tips: RegExp;
+  /** Изъятия с другим назначением: сейф/инкассация, такси (как в синке кассовых операций). */
+  other?: RegExp[];
 }): ReconcileResult {
   const target = cents(input.issued);
   const salaryMarked = (w: Withdrawal) => SALARY.test(w.comment);
-  // Чаевые — не зарплата, если в комментарии нет явного «ЗП».
-  const pool = input.withdrawals.filter((w) => salaryMarked(w) || !input.tips.test(w.comment));
+  // Чаевые, сейф, такси — не зарплата, если в комментарии нет явного «ЗП»:
+  // иначе инкассация на ту же сумму закрыла бы сверку.
+  const foreign = [input.tips, ...(input.other ?? [])];
+  const pool = input.withdrawals.filter((w) => salaryMarked(w) || !foreign.some((re) => re.test(w.comment)));
   const words = nameWords(input.names);
   const related = pool.filter((w) => salaryMarked(w) || mentionsName(w.comment, words));
   const relatedTotal = related.reduce((sum, w) => sum + cents(w.amount), 0);

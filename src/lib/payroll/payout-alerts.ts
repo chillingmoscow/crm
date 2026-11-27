@@ -4,9 +4,9 @@ import type { AlertText } from "./payout-alert-text";
 import type { VenueHandle } from "./payout-engine";
 
 // Карточки «Финансы → На разбор» по выплатам зарплаты (миграция 408). Заводит
-// и закрывает их только сервер (service_role): автовыдача, утренняя сверка,
+// и убирает их только сервер (service_role): автовыдача, утренняя сверка,
 // автоперенос. Одна карточка на (заведение, вид, ключ): закрытая «Всё верно»
-// не откроется снова, даже если причина повторится в тот же день.
+// не откроется снова, даже если причина повторится.
 //
 // Сбой карточки не роняет выдачу или сверку: деньги уже записаны, а о
 // проблеме параллельно пишет чат отчётов. В лог — только вид и заведение.
@@ -83,11 +83,16 @@ export async function attention(
   return { seen: raised === "created" || reportSent, reportSent };
 }
 
-/** Причина ушла сама (изъятие нашлось, выплату внесли, перенос прошёл) — закрыть открытую карточку. */
+/**
+ * Причина ушла сама (изъятие нашлось, выплату внесли, перенос прошёл) —
+ * открытая карточка удаляется, а не закрывается: если причина вернётся
+ * (выплату удалили), карточка заведётся заново. Закрытая человеком «Всё
+ * верно» остаётся и не повторяется.
+ */
 export async function closeAlert(s: VenueHandle, kind: PayoutAlertKind, key: string): Promise<void> {
   const r = await s.admin
     .from("payroll_payout_alerts")
-    .update({ status: "resolved", resolved_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .delete()
     .eq("account_id", s.accountId)
     .eq("venue_id", s.venueId)
     .eq("kind", kind)

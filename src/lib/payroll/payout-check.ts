@@ -90,6 +90,7 @@ async function reconcile(s: VenueHandle, data: PayoutSourceData, today: string, 
     { from: first, through, timezone: data.timezone },
   );
   const tips = new RegExp(cashMovementDefaults.tipsPattern, "iu");
+  const other = [new RegExp(cashMovementDefaults.safePattern, "iu"), new RegExp(cashMovementDefaults.taxiPattern, "iu")];
 
   for (const [date, day] of due) {
     // Изъятие засчитывается только одному дню.
@@ -103,6 +104,7 @@ async function reconcile(s: VenueHandle, data: PayoutSourceData, today: string, 
         .map((m) => ({ id: m.id, amount: m.amountCents / 100, comment: m.comment })),
       names: lines.map((l) => l.name),
       tips,
+      other,
     });
     const saved = await s.admin.from("payroll_payout_withdrawals").upsert(
       {

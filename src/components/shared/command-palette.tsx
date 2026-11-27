@@ -9,6 +9,8 @@ import {
   type ReactNode,
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { useExitValue } from "@/hooks/use-exit-value";
+import { anotherDialogOpen } from "@/lib/dom/open-dialog";
 import { Command as CommandPrimitive } from "cmdk";
 import { useTheme } from "next-themes";
 import {
@@ -43,6 +45,10 @@ import {
   navItemVisible,
   navSectionVisible,
 } from "@/components/shared/nav-sections";
+import {
+  paletteActionAllowed,
+  type PaletteAction,
+} from "@/components/shared/palette-actions";
 import { searchPalette } from "@/lib/command-palette/search";
 import {
   PALETTE_GROUP_LABEL,
@@ -91,6 +97,9 @@ const SEARCH_GROUPS: PaletteGroup[] = [
 
 const DEBOUNCE_MS = 250;
 
+/** Метка окна палитры — чтобы отличать его от чужих окон (`anotherDialogOpen`). */
+const PALETTE_ATTR = "data-command-palette";
+
 /**
  * Палитра ⌘K (Ctrl+K): переход в любой раздел меню (с учётом прав), поиск
  * людей, гостей, актов, операций и страниц базы знаний, быстрые действия.
@@ -108,6 +117,15 @@ export function CommandPaletteProvider({
   activeRoleCode: string | null;
 }) {
   const [open, setOpen] = useState(false);
+  // Номер открытия: содержимое пересоздаётся при каждом открытии (пустой
+  // запрос), но держится смонтированным, пока окно уезжает (motion.md, п. 8).
+  const [session, setSession] = useState(0);
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setSession((n) => n + 1);
+  }
+  const shownSession = useExitValue(open ? session : null);
   const pathname = usePathname() ?? "";
   const onKnowledge = pathname === "/knowledge" || pathname.startsWith("/knowledge/");
 
@@ -116,6 +134,9 @@ export function CommandPaletteProvider({
       if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
       if (e.key.toLowerCase() !== "k" && e.code !== "KeyK") return;
       if (onKnowledge) return; // там ⌘K — поиск базы знаний
+      // Поверх другого окна или панели не открываемся (но своё окно ⌘K
+      // закрывает).
+      if (anotherDialogOpen(PALETTE_ATTR)) return;
       e.preventDefault();
       setOpen((prev) => !prev);
     };
@@ -134,6 +155,7 @@ export function CommandPaletteProvider({
         // Палитра — у верхней трети экрана, как поиск базы знаний.
         className="top-[12vh] w-[calc(100%-24px)] max-w-[640px] translate-y-0 gap-0 overflow-hidden rounded-xl p-0 sm:top-[14vh]"
         aria-describedby={undefined}
+        data-command-palette=""
         hideClose
         // Фокус — сразу в поле поиска.
         onOpenAutoFocus={(e) => {
@@ -142,8 +164,9 @@ export function CommandPaletteProvider({
         }}
       >
         <DialogTitle className="sr-only">Поиск и команды</DialogTitle>
-        {open && (
+        {shownSession !== null && (
           <Palette
+            key={shownSession}
             userPermissions={userPermissions}
             activeRoleCode={activeRoleCode}
             onClose={() => setOpen(false)}
@@ -205,25 +228,25 @@ function Palette({
   }, [perms, activeRoleCode, go]);
 
   const actions = useMemo<Entry[]>(() => {
-    const has = (code: string) => perms.has(code);
+    const can = (action: PaletteAction) => paletteActionAllowed(action, perms);
     const list: Entry[] = [];
-    if (has("schedule.shift_create"))
+    if (can("shift"))
       list.push({ id: "act:shift", title: "Новая смена", hint: "Расписание", icon: CalendarPlus, keywords: "график смена добавить", run: () => go("/schedule?create=shift") });
-    if (has("finance.create_transaction")) {
+    if (can("transaction")) {
       list.push({ id: "act:expense", title: "Добавить расход", hint: "Транзакции", icon: ArrowUpRight, keywords: "операция платёж транзакция", run: () => go("/finance/transactions?create=expense") });
       list.push({ id: "act:income", title: "Добавить доход", hint: "Транзакции", icon: ArrowDownLeft, keywords: "операция поступление транзакция", run: () => go("/finance/transactions?create=income") });
     }
-    if (has("crm.manage_guests") && has("crm.view_guests"))
+    if (can("guest"))
       list.push({ id: "act:guest", title: "Добавить гостя", hint: "Гости", icon: UserPlus, keywords: "гость карточка", run: () => go("/crm/guests?create=1") });
-    if (has("people.invite_staff"))
+    if (can("casual"))
       list.push({ id: "act:casual", title: "Добавить сотрудника на подработку", hint: "Сотрудники", icon: UserPlus, keywords: "сотрудник подработка", run: () => go("/people/staff?add=casual") });
-    if (has("finance.manage_counterparties"))
+    if (can("counterparty"))
       list.push({ id: "act:counterparty", title: "Новый контрагент", hint: "Контрагенты", icon: Users, keywords: "поставщик", run: () => go("/finance/counterparties?create=1") });
-    if (has("finance.manage_bank_accounts"))
+    if (can("account"))
       list.push({ id: "act:account", title: "Новый счёт или касса", hint: "Счета и кассы", icon: Wallet, keywords: "банк касса", run: () => go("/finance/accounts?create=1") });
-    if (has("org.manage_legal_entities"))
+    if (can("legalEntity"))
       list.push({ id: "act:legal", title: "Новое юридическое лицо", hint: "Юридические лица", icon: FileBadge2, keywords: "юрлицо организация", run: () => go("/org/legal-entities?create=1") });
-    if (has("kb.view_pages"))
+    if (can("kbSearch"))
       list.push({
         id: "act:kb-search",
         title: "Поиск по базе знаний",

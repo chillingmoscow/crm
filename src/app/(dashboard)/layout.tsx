@@ -120,7 +120,7 @@ export default async function DashboardLayout({
       codes.includes("finance.view_counterparties") ? countCertificateAlerts().catch(() => 0) : 0,
     ),
     // Бейдж «Акты инвентаризации»: акты заведения в работе (права — внутри).
-    countActsInWork().catch(() => 0),
+    countActsInWork(activeVenueId).catch(() => 0),
   ]);
   let accountName: string | null = null;
   // KB-поиск (Cmd+K) поднят на dashboard-layout, чтобы работать из

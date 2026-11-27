@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useNewCandidateCount } from "@/lib/candidates/use-new-candidate-count";
@@ -264,8 +264,9 @@ function SidebarBody({
     userPermissionsSet.has("finance.view_counterparties"),
     initialCertificateAlertCount,
   );
+  const loadActsInWork = useCallback(() => countActsInWork(activeVenueId), [activeVenueId]);
   const actsInWorkCount = useRefreshingCount(
-    countActsInWork,
+    loadActsInWork,
     ["inventory.view_documents", "inventory.manage_documents", "inventory.fill_assigned_documents"].some(
       (code) => userPermissionsSet.has(code),
     ),

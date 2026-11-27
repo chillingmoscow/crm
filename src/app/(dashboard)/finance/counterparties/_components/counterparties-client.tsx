@@ -238,11 +238,15 @@ export function CounterpartiesClient({
   // ── Создание ───────────────────────────────────────────────
 
   const [createOpen, setCreateOpen] = useState(openCreate);
-  // ?create=1 открывает панель один раз: убираем его из адреса.
+  // ?create=1 открывает панель один раз — и когда страница уже открыта
+  // («Новый контрагент» из палитры ⌘K): открываем и убираем его из адреса.
   useEffect(() => {
-    if (openCreate) router.replace(`/finance/counterparties${periodQuery}`, { scroll: false });
+    if (!openCreate) return;
+    setCreateOpen(true);
+    router.replace(`/finance/counterparties${periodQuery}`, { scroll: false });
+    // Только по приходу параметра: periodQuery меняется вместе с фильтрами.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [openCreate]);
 
   // ── Архив, возврат, удаление ───────────────────────────────
 

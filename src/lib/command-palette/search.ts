@@ -1,6 +1,12 @@
 "use server";
 
-import { createClient, getCachedPermissions } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedActiveAccountId,
+  getCachedPermissions,
+} from "@/lib/supabase/server";
+import { getActiveAccountAmountRoundingScale } from "@/lib/settings/account";
+import type { AmountRoundingScale } from "@/lib/format/amount";
 import { asLooseDb, type LooseDb } from "@/lib/supabase/loose";
 import { INVENTORY_STATUS_LABEL } from "@/components/shared/inventory-status-badge";
 import { STATUSES as CANDIDATE_STATUSES } from "@/lib/candidates/types";
@@ -25,11 +31,14 @@ export async function searchPalette(rawQuery: string): Promise<PaletteSearchResu
   const perms = new Set(await getCachedPermissions());
   const supabase = await createClient();
   const db = asLooseDb(supabase);
+  // Заведение нужно двум группам (сотрудники, гости) — спрашиваем один раз.
+  let venuePromise: Promise<string | null> | null = null;
+  const venue = () => (venuePromise ??= activeVenue(db));
 
   const sources: Array<[PaletteGroup, boolean, () => Promise<PaletteHit[]>]> = [
-    ["staff", perms.has("people.view_staff"), () => searchStaff(db, query, perms)],
+    ["staff", perms.has("people.view_staff"), () => searchStaff(db, venue, query, perms)],
     ["candidates", perms.has("people.manage_candidates"), () => searchCandidates(db, query)],
-    ["guests", perms.has("crm.view_guests"), () => searchGuests(db, query)],
+    ["guests", perms.has("crm.view_guests"), () => searchGuests(db, venue, query)],
     [
       "acts",
       ["inventory.view_documents", "inventory.manage_documents", "inventory.fill_assigned_documents"].some(
@@ -37,7 +46,7 @@ export async function searchPalette(rawQuery: string): Promise<PaletteSearchResu
       ),
       () => searchActs(db, query, perms),
     ],
-    ["transactions", perms.has("finance.view_transactions"), () => searchTransactions(db, query)],
+    ["transactions", perms.has("finance.view_transactions"), () => searchTransactions(db, query, getActiveAccountAmountRoundingScale)],
     ["knowledge", perms.has("kb.view_pages"), () => searchKnowledge(db, query)],
   ];
 
@@ -67,8 +76,15 @@ async function activeVenue(db: LooseDb): Promise<string | null> {
   return error || !data ? null : String(data);
 }
 
-async function searchStaff(db: LooseDb, query: string, perms: Set<string>): Promise<PaletteHit[]> {
-  const venue = await activeVenue(db);
+type VenueLookup = () => Promise<string | null>;
+
+async function searchStaff(
+  db: LooseDb,
+  venueId: VenueLookup,
+  query: string,
+  perms: Set<string>,
+): Promise<PaletteHit[]> {
+  const venue = await venueId();
   if (!venue) return [];
   const { data, error } = await db.rpc("get_venue_staff", { p_venue_id: venue });
   if (error) throw new Error(error.message);
@@ -128,8 +144,8 @@ async function searchCandidates(db: LooseDb, query: string): Promise<PaletteHit[
   }));
 }
 
-async function searchGuests(db: LooseDb, query: string): Promise<PaletteHit[]> {
-  const venue = await activeVenue(db);
+async function searchGuests(db: LooseDb, venueId: VenueLookup, query: string): Promise<PaletteHit[]> {
+  const venue = await venueId();
   if (!venue) return [];
   const { data, error } = await db.rpc("crm_guest_list", {
     p_venue: venue,
@@ -143,7 +159,7 @@ async function searchGuests(db: LooseDb, query: string): Promise<PaletteHit[]> {
     p_desc: false,
   });
   if (error) throw new Error(error.message);
-  const { data: account } = await db.rpc("get_active_account_id");
+  const account = await getCachedActiveAccountId();
   const rows =
     (data as { rows?: Array<{ id: string; data: { name?: string; groupTitle?: string | null; photoPath?: string | null } }> } | null)
       ?.rows ?? [];
@@ -195,13 +211,21 @@ async function searchActs(db: LooseDb, query: string, perms: Set<string>): Promi
   }));
 }
 
-async function searchTransactions(db: LooseDb, query: string): Promise<PaletteHit[]> {
-  const { data, error } = await db.rpc("finance_transactions_page", {
-    p_filters: { q: query },
-    p_sort: [],
-    p_limit: PER_GROUP,
-    p_offset: 0,
-  });
+async function searchTransactions(
+  db: LooseDb,
+  query: string,
+  roundingScale: () => Promise<AmountRoundingScale>,
+): Promise<PaletteHit[]> {
+  // Суммы — с точностью «Округления сумм» аккаунта, как в списке операций.
+  const [{ data, error }, scale] = await Promise.all([
+    db.rpc("finance_transactions_page", {
+      p_filters: { q: query },
+      p_sort: [],
+      p_limit: PER_GROUP,
+      p_offset: 0,
+    }),
+    roundingScale(),
+  ]);
   if (error) throw new Error(error.message);
   const rows =
     (data as {
@@ -220,7 +244,7 @@ async function searchTransactions(db: LooseDb, query: string): Promise<PaletteHi
     group: "transactions" as const,
     id: t.id,
     title: t.description?.trim() || (t.public_id ? `Операция № ${t.public_id}` : "Операция"),
-    subtitle: [formatDateCell(t.date), `${sign(t.type)}${formatMoney(Math.abs(t.amount), t.currency ?? "RUB")}`]
+    subtitle: [formatDateCell(t.date), `${sign(t.type)}${formatMoney(Math.abs(t.amount), t.currency ?? "RUB", scale)}`]
       .filter(Boolean)
       .join(" · "),
     href: `/finance/transactions?id=${t.id}`,

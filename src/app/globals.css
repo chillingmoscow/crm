@@ -4718,13 +4718,20 @@ html.theme-transition *::after {
    движение.
 
    `data-[state=open|closed]:animate-*` от Radix — это keyframes
-   animations, не transitions, поэтому отдельно их `animation:none`. */
+   animations, не transitions, поэтому отдельно их `animation:none`.
+
+   Задержки тоже обнуляем: иначе строки таблиц (`.table-row-in`),
+   столбики графиков и прочее с `fill-mode: both` и шагом
+   `animationDelay` проявляются по очереди до ~1 с, хотя каждое — мгновенно.
+   `!important` перекрывает и инлайновый `style={{ animationDelay }}`. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
     animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
   }

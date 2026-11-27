@@ -97,10 +97,13 @@ export function LegalEntitiesClient({
   const [createOpen, setCreateOpen] = useState(openCreate);
   const firstPage = () => st.setPagination((p) => ({ ...p, pageIndex: 0 }));
 
-  // `?create=1` нужен один раз: убираем его из адреса, чтобы обновление
-  // страницы не открывало панель снова.
+  // `?create=1` нужен один раз: открываем панель — и когда страница уже
+  // открыта («Новое юрлицо» из палитры ⌘K) — и убираем параметр из адреса,
+  // чтобы обновление страницы не открывало панель снова.
   useEffect(() => {
-    if (openCreate) router.replace("/org/legal-entities", { scroll: false });
+    if (!openCreate) return;
+    setCreateOpen(true);
+    router.replace("/org/legal-entities", { scroll: false });
   }, [openCreate, router]);
 
   const q = st.search.toLocaleLowerCase("ru").trim();

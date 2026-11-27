@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { anotherDialogOpen } from "@/lib/dom/open-dialog";
 import { Loader2, Search, Sparkles, ArrowLeft } from "lucide-react";
 
 import { Command as CommandPrimitive } from "cmdk";
@@ -84,7 +85,11 @@ export function KbSearchProvider({ children, aiAskEnabled = false }: KbSearchPro
   useEffect(() => {
     if (!onKnowledge) return;
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      // e.code — та же клавиша в русской раскладке (там e.key — «л»).
+      if ((e.metaKey || e.ctrlKey) && (e.key.toLowerCase() === "k" || e.code === "KeyK")) {
+        // Поверх другого окна (палитра из кнопки поиска, панель) не
+        // открываемся; своё окно ⌘K закрывает.
+        if (anotherDialogOpen("data-kb-search")) return;
         e.preventDefault();
         setOpen((prev) => !prev);
       }
@@ -219,6 +224,7 @@ function KbSearchDialog({ open, onOpenChange, aiAskEnabled }: KbSearchDialogProp
           - Result rows с padding 10/20, hover/active fill-accent
           - Footer с подсказками (border-top, fill-accent) */}
       <DialogContent
+        data-kb-search=""
         className="max-w-[720px] p-0 gap-0 rounded-[14px] overflow-hidden shadow-xl
                    [&>button:last-child]:hidden top-[20%] translate-y-0"
       >

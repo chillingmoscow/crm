@@ -31,7 +31,6 @@ export async function WeekBlock({ mode }: { mode: CompareMode }) {
   const today = parseIsoDay(data.cutoff) ?? new Date();
   // В понедельник закрытых дней нет — подпись без диапазона.
   const range = started ? periodLabel({ from: data.week.from, to: data.cutoff }, today) : null;
-  const columns = ((sales ? 2 : 0) + (expense ? 1 : 0)) as 1 | 2 | 3;
   const baseLabel = base?.label ?? null;
   const yearMode = mode === "year";
   const notStarted = "Неделя только началась";
@@ -46,7 +45,7 @@ export async function WeekBlock({ mode }: { mode: CompareMode }) {
   };
 
   return (
-    <MetricStrip label={range ? `Показатели недели: ${range}` : "Показатели недели"} columns={columns}>
+    <MetricStrip label={range ? `Показатели недели: ${range}` : "Показатели недели"}>
       {sales ? (
         <Metric
           primary

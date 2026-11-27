@@ -277,7 +277,7 @@ function getKbNewPageSlashItem(onCreate: () => void) {
     subtext: "Создать вложенную страницу и открыть её",
     aliases: ["page", "new", "novaya", "stranitsa", "новая", "страница"],
     group: "Базовые блоки",
-    icon: <FilePlus className="size-4 text-brand" />,
+    icon: <FilePlus className="size-4" />,
     onItemClick: onCreate,
   };
 }
@@ -293,7 +293,7 @@ function getKbEmojiSlashItem(editor: BlockNoteEditor<never, never, never>) {
     subtext: "Вставить эмодзи в текст",
     aliases: ["emoji", "эмодзи", "smile", "смайл"],
     group: "Прочее",
-    icon: <Smile className="size-4 text-brand" />,
+    icon: <Smile className="size-4" />,
     onItemClick: () => {
       // Координата каретки — берём bounding rect view'а на posBefore.
       // Если selection пуст или в неподходящем месте, fallback к centre
@@ -327,7 +327,7 @@ function getKbGallerySlashItem(editor: BlockNoteEditor<never, never, never>) {
     subtext: "Сетка изображений с подписями",
     aliases: ["gallery", "grid", "галерея", "сетка", "фото", "изображения"],
     group: "Медиа",
-    icon: <Images className="size-4 text-brand" />,
+    icon: <Images className="size-4" />,
     onItemClick: () => {
       insertOrUpdateBlockForSlashMenu(editor, {
         type: "gallery",
@@ -351,7 +351,7 @@ function getKbCollectionSlashItem(
     subtext: "Список дочерних страниц со свойствами",
     aliases: ["collection", "database", "db", "база", "коллекция", "список"],
     group: "Базовые блоки",
-    icon: <Database className="size-4 text-brand" />,
+    icon: <Database className="size-4" />,
     onItemClick: () => {
       insertOrUpdateBlockForSlashMenu(editor, {
         type: "collection",

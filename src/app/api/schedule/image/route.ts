@@ -3,9 +3,10 @@ import { ZodError } from "zod";
 import { loadScheduleImage, scheduleImageScope } from "@/lib/schedule/schedule-image-data";
 import { renderScheduleImage } from "@/lib/schedule/schedule-image-render";
 import { scheduleImageFileName } from "@/lib/schedule/schedule-image";
+import { isTemplateSort } from "@/lib/schedule/template-order";
 
 /**
- * GET /api/schedule/image?week=YYYY-MM-DD&department=<id|none>&part=N[&download=1]
+ * GET /api/schedule/image?week=YYYY-MM-DD&department=<id|none>&sort=time|name&part=N[&download=1]
  *
  * PNG расписания активного заведения на неделю — та же картинка, что бот
  * отправляет в Telegram. Бинарный ответ не укладывается в server action,
@@ -16,11 +17,13 @@ export const runtime = "nodejs";
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const part = Number(url.searchParams.get("part") ?? "0");
+  const sort = url.searchParams.get("sort");
   try {
     const scope = await scheduleImageScope();
     const image = await loadScheduleImage(scope, {
       week: url.searchParams.get("week") ?? "",
       department: url.searchParams.get("department") || null,
+      sort: isTemplateSort(sort) ? sort : undefined,
     });
     if (!Number.isInteger(part) || part < 0 || part >= image.parts.length)
       return NextResponse.json({ error: "Нет такой части картинки" }, { status: 404 });

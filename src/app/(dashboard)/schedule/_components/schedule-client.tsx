@@ -120,7 +120,8 @@ import {
 } from "./grid-row-person";
 import { toast } from "sonner";
 import { TemplateList } from "./template-list";
-import { ViewMenu } from "./view-menu";
+import { TemplateSortMenu, ViewMenu } from "./view-menu";
+import { DEFAULT_TEMPLATE_SORT, isTemplateSort, sortTemplates, type TemplateSort } from "@/lib/schedule/template-order";
 import { ScheduleImageMenu } from "./schedule-image-menu";
 import { TemplateWeek } from "./template-week";
 import { gridScrollClass, useGridFits } from "./use-grid-fits";
@@ -424,6 +425,22 @@ export function ScheduleClient({
     if (next === "templates") url.searchParams.set("view", next);
     else url.searchParams.delete("view");
     window.history.replaceState(null, "", url);
+  };
+  // Порядок строк вида «По шаблонам»: по умолчанию сверху вниз по времени
+  // начала. Выбор запоминается на устройстве, как вид.
+  const [templateSort, setTemplateSort] = useState<TemplateSort>(DEFAULT_TEMPLATE_SORT);
+  const templateSortKey = `schedule.templateSort.${initial.venueId}.${initial.userId}`;
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(templateSortKey);
+      if (isTemplateSort(saved)) setTemplateSort(saved);
+    } catch {}
+  }, [templateSortKey]);
+  const changeTemplateSort = (next: TemplateSort) => {
+    setTemplateSort(next);
+    try {
+      localStorage.setItem(templateSortKey, next);
+    } catch {}
   };
   const [editor, setEditor] = useState<Editor | null>(null);
   /** «Задача на день»: день и, из меню смены, её шаблон. */
@@ -1729,6 +1746,10 @@ export function ScheduleClient({
                 }}
                 secondaryActions={
                   <>
+                    {/* Сортировка — сразу за фильтрами, как в тулбарах списков. */}
+                    {templateView && (
+                      <TemplateSortMenu value={templateSort} onChange={changeTemplateSort} />
+                    )}
                     {can("shift_create") && !templateView && (
                       <TableIconButton
                         label={stripOpen ? "Скрыть шаблоны смен" : "Показать шаблоны смен"}
@@ -1766,6 +1787,7 @@ export function ScheduleClient({
                       <ScheduleImageMenu
                         week={week}
                         department={department === "all" ? null : department}
+                        sort={templateSort}
                         venueId={data.venueId}
                       />
                     )}
@@ -2008,8 +2030,8 @@ export function ScheduleClient({
                   today={today}
                   timezone={data.timezone}
                   nowTime={nowTime}
-                  templates={data.templates.filter((template) => !template.archived &&
-                    (department === "all" || template.department_id === department))}
+                  templates={sortTemplates(data.templates.filter((template) => !template.archived &&
+                    (department === "all" || template.department_id === department)), templateSort)}
                   shifts={weekDateShifts}
                   visibleShifts={weekShifts}
                   tasks={weekTasks}

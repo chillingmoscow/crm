@@ -18,6 +18,8 @@ export const scheduleImageRequest = z.object({
     return Number.isFinite(d.getTime()) && d.toISOString().slice(0, 10) === v;
   }, "Некорректная неделя"),
   department: z.string().uuid().nullable().default(null),
+  /** Порядок строк, как выбран в виде «По шаблонам»; неизвестное значение — по умолчанию. */
+  sort: z.enum(["time", "name"]).optional().catch(undefined),
 });
 export type ScheduleImageRequest = z.input<typeof scheduleImageRequest>;
 
@@ -59,7 +61,7 @@ export async function loadScheduleImage(
   scope: ScheduleImageScope,
   request: ScheduleImageRequest,
 ): Promise<ScheduleImage> {
-  const { week: rawWeek, department } = scheduleImageRequest.parse(request);
+  const { week: rawWeek, department, sort } = scheduleImageRequest.parse(request);
   const week = weekStart(rawWeek);
   const { db, venueId } = scope;
   // С запасом в сутки по краям: точная неделя считается по часам заведения.
@@ -76,7 +78,7 @@ export async function loadScheduleImage(
       .lt("starts_at", to)
       .order("starts_at")
       .limit(5000),
-    db.from<ImageTemplate[]>("schedule_templates").select("id,name,subtitle,color,department_id,archived").eq("venue_id", venueId),
+    db.from<ImageTemplate[]>("schedule_templates").select("id,name,subtitle,color,department_id,archived,start_time,end_time,variants").eq("venue_id", venueId),
     db.rpc("get_venue_staff", { p_venue_id: venueId }),
     db.rpc("schedule_payroll_options"),
   ]);
@@ -102,5 +104,6 @@ export async function loadScheduleImage(
       ...casual.map((e) => ({ key: `payroll:${e.id}`, name: e.name })),
     ],
     templates: ok(templates, "шаблоны") ?? [],
+    sort,
   });
 }

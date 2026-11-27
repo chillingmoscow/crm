@@ -16,16 +16,23 @@ function mapSupabaseError(message: string) {
   return "Не удалось сохранить пароль. Попробуйте ещё раз.";
 }
 
+function safeNext(raw: string | null): string {
+  if (!raw || !raw.startsWith("/")) return "/dashboard";
+  try {
+    const url = new URL(raw, window.location.origin);
+    if (url.origin !== window.location.origin) return "/dashboard";
+    return url.pathname + url.search + url.hash;
+  } catch {
+    return "/dashboard";
+  }
+}
+
 function SetPasswordContent() {
   const searchParams = useSearchParams();
   const leave = useAuthLeave();
   const [linkError, setLinkError] = useState<string | null>(null);
   const [sessionReady, setSessionReady] = useState(false);
   const [checking, setChecking] = useState(true);
-
-  // Куда идти после пароля — обычно /invite?invitation=ID.
-  const rawNext = searchParams.get("next") ?? "/dashboard";
-  const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/dashboard";
 
   // Сессию ставит /auth/confirm по ссылке из приглашения.
   useEffect(() => {
@@ -48,8 +55,11 @@ function SetPasswordContent() {
     const supabase = createClient();
     const { error } = await supabase.auth.updateUser({ password });
     if (error) return mapSupabaseError(error.message);
-    // Пароль сохранён — в приложение (принять приглашение, онбординг).
-    leave(next);
+    // Пароль сохранён — в приложение (принять приглашение, онбординг):
+    // обычно /invite?invitation=ID. Только свой сайт — адрес разбираем
+    // относительно текущего, иначе «//host» или «/\host» браузер увёл бы
+    // на чужой домен.
+    leave(safeNext(searchParams.get("next")));
     return null;
   };
 

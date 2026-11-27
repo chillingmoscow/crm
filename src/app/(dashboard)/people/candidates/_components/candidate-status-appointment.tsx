@@ -5,7 +5,7 @@ import { canScheduleCandidateTrial } from "@/lib/candidates/workflow";
 import { candidateError } from "@/lib/candidates/errors";
 import { getCandidateAppointments } from "../actions";
 import { CandidateAppointmentDrawer } from "./candidate-appointment-drawer";
-import type { CandidateStatusUpdate } from "./candidate-status-cell";
+import type { CandidateStatusUpdate } from "./candidate-status-change";
 import { unwrapAction } from "@/lib/actions/result";
 
 export function CandidateStatusAppointment({ open = true, candidate, kind, options, onClose, onSaved }: {

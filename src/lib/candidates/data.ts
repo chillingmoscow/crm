@@ -21,6 +21,7 @@ import type {
   ListFilters,
   CandidatePage,
   CandidatePhotos,
+  CandidateStatus,
 } from "./types";
 import { uuid, normalizePhone } from "./schema";
 import { mediaUrl, type MediaTransform } from "@/lib/storage/media";
@@ -142,6 +143,54 @@ async function candidatePage(
     rows = check(result) ?? [];
   }
   return { rows, total, page, pageSize };
+}
+/** Колонки доски: сколько анкет этапа показываем и в каком порядке. */
+const BOARD_LIMIT = { active: 50, rejected: 25 } as const;
+export type CandidateBoardData = {
+  columns: Partial<Record<CandidateStatus, { rows: Candidate[]; total: number }>>;
+  /** Анкеты с начатым и не законченным оформлением — их можно принять с любого этапа. */
+  reserved: string[];
+};
+/**
+ * Доска кандидатов: по запросу на этап, у каждого свой предел и общий счёт,
+ * чтобы колонка честно писала «Показаны N из M». В работе — дольше всех
+ * ждущие сверху, у отказов — последние.
+ */
+export async function candidateBoard(
+  filters: Omit<ListFilters, "status" | "sort" | "page" | "pageSize">,
+  stages: Exclude<CandidateStatus, "hired">[],
+): Promise<CandidateBoardData> {
+  const s = await candidateScope();
+  const [pages, hires] = await Promise.all([
+    Promise.all(
+      stages.map((status) =>
+        candidatePage(s, {
+          ...filters,
+          status: [status],
+          sort: [
+            {
+              field: "stage_changed_at",
+              direction: status === "rejected" ? "asc" : "desc",
+            },
+          ],
+          page: 0,
+          pageSize: status === "rejected" ? BOARD_LIMIT.rejected : BOARD_LIMIT.active,
+        }),
+      ),
+    ),
+    s.admin
+      .from<{ candidate_id: string }[]>("candidate_hires")
+      .select("candidate_id")
+      .eq("account_id", s.accountId)
+      .eq("state", "reserved")
+      .limit(1000),
+  ]);
+  return {
+    columns: Object.fromEntries(
+      stages.map((status, i) => [status, { rows: pages[i].rows, total: pages[i].total }]),
+    ),
+    reserved: (check(hires) ?? []).map((h) => h.candidate_id),
+  };
 }
 export async function candidatePhotos(ids: string[]): Promise<Record<string, CandidatePhotos>> {
   const s = await candidateScope();

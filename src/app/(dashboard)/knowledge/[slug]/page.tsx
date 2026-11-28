@@ -32,6 +32,7 @@ import {
   getKbRequiredReadingOverview,
 } from "@/lib/knowledge/required-reading";
 import { estimateReadingMinutes } from "@/lib/knowledge/reading-time";
+import { getActiveAccountTimezone } from "@/lib/settings/account";
 import { kbPropertiesSchema } from "@/lib/knowledge/schemas";
 import type {
   KbBlock,
@@ -189,7 +190,7 @@ export default async function KbPageView({ params }: PageProps) {
   // Руководителю с правом обязательного чтения — «Прочитали N из M» на
   // плашке (вместо пункта «Кто прочитал» в меню ⋯). Оба запроса зависят
   // только от readStatus — идут параллельно.
-  const [accumulatedActiveSeconds, readingStats] = await Promise.all([
+  const [accumulatedActiveSeconds, readingStats, accountTimeZone] = await Promise.all([
     readStatus.required && !readStatus.myReadAt
       ? getKbMyActiveSeconds(row.id)
       : Promise.resolve(0),
@@ -210,6 +211,9 @@ export default async function KbPageView({ params }: PageProps) {
             : null,
         )
       : Promise.resolve(null),
+    // Дата «Прочитано 27 ноября» — в поясе аккаунта и на сервере, и в
+    // браузере, иначе ночная отметка давала разную дату и ошибку гидратации.
+    readStatus.required ? getActiveAccountTimezone() : Promise.resolve(undefined),
   ]);
 
   const chain = pageViewData?.breadcrumbs ?? [];
@@ -419,6 +423,7 @@ export default async function KbPageView({ params }: PageProps) {
                 canSeeReaders={hasManageRequiredReading}
                 required={readStatus.required}
                 initialReadAt={readStatus.myReadAt}
+                timeZone={accountTimeZone}
                 needsReread={readStatus.needsReread}
                 accumulatedActiveSeconds={accumulatedActiveSeconds}
                 readingMinutes={

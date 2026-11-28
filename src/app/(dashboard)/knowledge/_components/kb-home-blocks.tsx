@@ -87,7 +87,9 @@ export function KbHomeToRead({
           </div>
         ) : (
           <ul className="-mx-2 min-w-0 flex-1">
-            {rows.slice(0, 5).map((row, i) => (
+            {/* Весь список: заголовок «К прочтению · N» и пункт дерева со
+                счётчиком обещают все N страниц, а не первые пять. */}
+            {rows.map((row, i) => (
               <PageRow
                 key={row.id}
                 index={i}

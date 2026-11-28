@@ -7,7 +7,7 @@ import { matchKbHotkey, KB_COMMAND_EVENT } from "@/lib/kb-hotkeys";
 /**
  * Монтируется один раз в knowledge/layout. Переводит Mod+Shift+буква
  * в CustomEvent("kb:command"). Сам не знает про права/состояние —
- * исполняют подписчики (kb-page-menu, kb-tree-nav). Гард «не в инпуте»
+ * исполняют подписчики (kb-page-menu, kb-tree-create-menu, kb-favorite-toggle). Гард «не в инпуте»
  * не нужен: Mod+Shift-комбо не порождают текст.
  */
 export function KbHotkeyListener() {

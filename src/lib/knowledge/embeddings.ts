@@ -16,7 +16,7 @@ import { buildPageChunks } from "@/lib/knowledge/embeddings-chunk";
  * после успешного `kb_save_page` (см. saveKbPage в pages.ts).
  *   1. Тянет page row (RLS-protected) — берём plain_text.
  *   2. Chunks по headings (или fallback на paragraphs / hard-split).
- *   3. Batch-embed через SiliconFlow bge-m3.
+ *   3. Batch-embed через SiliconFlow (Qwen3-Embedding-0.6B).
  *   4. DELETE существующих embeddings + INSERT новых (atomic per-page
  *      replacement; HNSW index переидексируется автоматически).
  *
@@ -70,7 +70,7 @@ export async function reembedKbPage(pageId: string): Promise<{
   // дёргает reembedKbPage).
   //
   // Стоимость guard'а — один SELECT (~10мс), экономия — embed-roundtrip
-  // (~500мс на SiliconFlow) + RPC (~10мс) + квота bge-m3.
+  // (~500мс на SiliconFlow) + RPC (~10мс) + квота модели эмбеддингов.
   //
   // Guard НЕ заменяет существующий `p_expected_updated_at`-stale-guard
   // в RPC: тот защищает от race'ов между параллельными reembed-job'ами,

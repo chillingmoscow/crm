@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 
+import { errorText } from "@/lib/actions/error-text";
+
 import {
   createClient,
   getCachedPermissionChecker,
@@ -60,7 +62,9 @@ export async function markKbPageAsRead(
   });
   // 23505 = unique_violation: already-marked этой версии, идемпотентно.
   if (error && error.code !== "23505") {
-    return { error: error.message };
+    // Например, флаг обязательности сняли, пока человек читал, — RLS
+    // отклонит вставку; английский текст базы пользователю не показываем.
+    return { error: errorText(error, "Не удалось подтвердить прочтение") };
   }
 
   // "layout": счётчик «К прочтению» живёт в дереве (layout раздела).
@@ -139,11 +143,18 @@ export async function setKbPageRequiredReading(input: {
     return { error: "Нет права управлять обязательным прочтением" };
   }
 
-  const { error } = await supabase
+  // Под RLS без права на правку страницы update не падает, а меняет
+  // 0 строк — без `.select("id")` меню показывало «включено», а после
+  // перезагрузки флаг пропадал (CLAUDE.md, «Журнал событий»).
+  const { data, error } = await supabase
     .from("kb_pages")
     .update({ required_reading: input.required })
-    .eq("id", input.pageId);
-  if (error) return { error: error.message };
+    .eq("id", input.pageId)
+    .select("id");
+  if (error) return { error: errorText(error, "Не удалось изменить обязательное чтение") };
+  if (!data || data.length === 0) {
+    return { error: "Нет права менять эту страницу" };
+  }
 
   revalidatePath(`/knowledge`);
   return { error: null };

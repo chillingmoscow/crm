@@ -1,6 +1,8 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { getActiveAccountTimezone } from "@/lib/settings/account";
+import { calendarDateInZone, dayStartInZone } from "@/lib/format/zoned-day";
 import { chunk, fetchAllRows } from "@/lib/supabase/fetch-all";
 import type { LooseQuery } from "@/lib/supabase/loose";
 
@@ -256,7 +258,7 @@ export async function getKbAnalyticsSummary(args: {
 }
 
 export interface KbAnalyticsMonthlyPoint {
-  /** 'YYYY-MM' (UTC). */
+  /** 'YYYY-MM' в поясе аккаунта. */
   monthKey: string;
   totalSeconds: number;
   sessionCount: number;
@@ -271,7 +273,10 @@ export async function getKbMonthlyTrend(args?: {
   const months = Math.min(Math.max(args?.months ?? 12, 1), 24);
   try {
     const supabase = await createClient();
-    const now = new Date();
+    // Месяцы — в поясе аккаунта (как группирует kb_analytics_month_stats с
+    // миграции 421): `now` и `startMonth` — календарные метки этого пояса.
+    const timeZone = await getActiveAccountTimezone();
+    const now = new Date(`${calendarDateInZone(new Date().toISOString(), timeZone)}T00:00:00.000Z`);
     let startMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1));
     const { data: accountId } = await supabase.rpc("get_active_account_id");
     if (accountId) {
@@ -280,14 +285,16 @@ export async function getKbMonthlyTrend(args?: {
         .select("created_at")
         .eq("id", accountId as unknown as string)
         .maybeSingle();
-      const createdAt = accountRow?.created_at ? new Date(accountRow.created_at as string) : null;
+      const createdAt = accountRow?.created_at
+        ? new Date(`${calendarDateInZone(accountRow.created_at as string, timeZone)}T00:00:00.000Z`)
+        : null;
       if (createdAt && Number.isFinite(createdAt.getTime())) {
         const createdMonth = new Date(Date.UTC(createdAt.getUTCFullYear(), createdAt.getUTCMonth(), 1));
         if (createdMonth > startMonth) startMonth = createdMonth;
       }
     }
     const { data, error } = await supabase.rpc("kb_analytics_month_stats", {
-      p_since: startMonth.toISOString(),
+      p_since: dayStartInZone(startMonth.toISOString().slice(0, 10), timeZone),
     });
     if (error) throw new Error(error.message);
     const agg = new Map((data ?? []).map((r) => [r.month, r]));

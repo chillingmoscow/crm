@@ -256,9 +256,10 @@ const KbDragHandleMenu: FC = () => (
  *
  *  `editable` — если false (locked-страница), скрываем side-menu для
  *  audio-блока: action'ов с ним всё равно сделать нельзя, drag-handle и
- *  + кнопка визуально только мешают. CSS-подход через scope-класс не
- *  работает — BN рендерит side-menu в FloatingUI portal вне `.bn-sheerly`.
- *  JS-условие на `props.block.type` — единственный надёжный путь. */
+ *  + кнопка визуально только мешают. Решаем в JS по `props.block.type`:
+ *  так понятнее, чем CSS по типу блока (BN 0.49 копирует `className` и
+ *  `data-color-scheme` на портал, на это опираются стили ручки в
+ *  globals.css). */
 export function KbSideMenuController({
   editable = true,
 }: {

@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { BookCheck, Check, Loader2, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
@@ -25,6 +24,9 @@ interface KbRequiredReadingBannerProps {
   /** Когда current user подтвердил прочтение ТЕКУЩЕЙ версии (null
    *  если не подтверждал или подтверждал старую версию). */
   initialReadAt: string | null;
+  /** Пояс аккаунта для даты «Прочитано …» (одинаковая разметка на сервере
+   *  и в браузере). */
+  timeZone?: string;
   /** True если страница обновилась после прежнего подтверждения
    *  (миграция 097). Другой заголовок/иконка, но gate тот же. */
   needsReread?: boolean;
@@ -74,6 +76,7 @@ export function KbRequiredReadingBanner({
   pageId,
   required,
   initialReadAt,
+  timeZone,
   needsReread = false,
   readingMinutes = null,
   accumulatedActiveSeconds = 0,
@@ -82,10 +85,9 @@ export function KbRequiredReadingBanner({
   pageSlug,
   pageTitle,
 }: KbRequiredReadingBannerProps) {
-  const router = useRouter();
   const { confirm, dialog } = useConfirm();
   const [readAt, setReadAt] = useState<string | null>(initialReadAt);
-  // После router.refresh (например, «Попросить перечитать») сервер присылает
+  // После обновления экрана (например, «Попросить перечитать») сервер присылает
   // новое значение — локальное состояние должно его подхватить.
   useEffect(() => setReadAt(initialReadAt), [initialReadAt]);
   const [pending, setPending] = useState(false);
@@ -157,7 +159,7 @@ export function KbRequiredReadingBanner({
           ? `Попросили перечитать: ${countRu(notified, "человек", "человека", "человек")}`
           : "Прочтения сброшены",
       );
-      router.refresh();
+      // Экран обновит само действие (revalidatePath по разделу).
     } catch (error) {
       toast.error((error as Error).message);
     } finally {
@@ -213,7 +215,7 @@ export function KbRequiredReadingBanner({
         <span className="min-w-0">
           <span className="font-semibold">
             {plate.kind === "read"
-              ? `Прочитано ${formatDayMonth(plate.readAt) ?? ""}`.trim()
+              ? `Прочитано ${formatDayMonth(plate.readAt, new Date(), timeZone) ?? ""}`.trim()
               : plate.reread
                 ? "Страница изменилась, прочитайте снова"
                 : "Обязательно к прочтению"}

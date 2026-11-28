@@ -1172,10 +1172,9 @@ export function KbBlockNoteEditor({
             }}
             // Custom render — KbSlashMenu добавляет hover-hold tooltip
             // (1.2 sec) с описанием пункта + скрывает subtext в основном
-            // списке через wrapper-класс `.kb-slash-menu`. `@`-меню
-            // (kb-mention-menu.tsx) использует другой
-            // SuggestionMenuController и рендерит дефолтный
-            // SuggestionMenu — там subtext остаётся видимым.
+            // списке через wrapper-класс `.kb-slash-menu`. Меню «@» —
+            // отдельный SuggestionMenuController со своим KbMentionList
+            // (kb-mention-menu.tsx): группы «Страницы» / «Сотрудники».
             suggestionMenuComponent={KbSlashMenu}
           />
         )}

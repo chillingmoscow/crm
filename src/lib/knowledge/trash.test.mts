@@ -17,7 +17,7 @@ test("KB_TRASH_BUCKET_LABEL: подписи групп", () => {
   assert.deepEqual(KB_TRASH_BUCKET_LABEL, {
     today: "Сегодня",
     yesterday: "Вчера",
-    week: "На прошлой неделе",
+    week: "За неделю",
     earlier: "Ранее",
   });
 });

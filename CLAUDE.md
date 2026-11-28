@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **UI**: shadcn/ui + Radix + Tailwind v3, иконки `lucide-react`. Конфиг shadcn — `components.json` (alias `@/components`, `@/lib`, `@/hooks`).
 - **Редактор знаний**: BlockNote 0.49 поверх TipTap 3 / ProseMirror.
 - **Формы**: `react-hook-form` + `zod` (через `@hookform/resolvers`).
-- **AI**: DeepSeek (KB slash-команды) и SiliconFlow (embeddings BAAI/bge-m3) — оба через `openai` SDK с custom baseURL, **только серверно**.
+- **AI**: DeepSeek (KB slash-команды) и SiliconFlow (embeddings `Qwen/Qwen3-Embedding-0.6B`, 1024 dim; см. `src/lib/ai/siliconflow-client.ts` и memory `siliconflow_domain_policy.md`) — оба через `openai` SDK с custom baseURL, **только серверно**.
 - **DaData**: юрлица и адреса по ИНН — **только серверно**, ключи `DADATA_API_KEY`/`DADATA_SECRET_KEY` (см. memory `dadata_policy.md`).
 - **Менеджер пакетов**: pnpm 9 (lockfile `pnpm-lock.yaml`, CI использует `pnpm/action-setup@v4`).
 
@@ -40,7 +40,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Route groups (`src/app/`)
 - `(auth)/` — публичные страницы login/register/forgot-password/verify-email/set-password (свой layout).
 - `(onboarding)/onboarding/` — флоу первого входа (создание аккаунта, инвайты), `actions.ts` рядом.
-- `(dashboard)/` — основное приложение под аутентификацией. Внутри модули: `crm/`, `finance/`, `knowledge/`, `notifications/`, `people/` (staff, roles), `org/` (account, venues), `settings/`, `profile/`, `dashboard/`. У каждого модуля свои server actions в `actions.ts`. Исключение — `inventory/`: экшены разложены по доменам в `inventory/_actions/<домен>.ts` (`sync`, `assignment`, `documents`, `results`, `exclusions`, `resort`, `recount`, `draft`, `catalog`), общие хелперы — в `inventory/actions-shared.ts`. Импортировать нужный домен напрямую; barrel-реэкспорта намеренно нет, чтобы не тянуть весь модуль в клиентский граф.
+- `(dashboard)/` — основное приложение под аутентификацией. Внутри модули: `crm/`, `finance/`, `knowledge/`, `notifications/`, `people/` (staff, roles), `org/` (account, venues), `settings/`, `profile/`, `dashboard/`. У каждого модуля свои server actions в `actions.ts`. Исключения: у `knowledge/` файла `actions.ts` нет — действия лежат в `src/lib/knowledge/*.ts` (файлы с `"use server"`: `pages.ts`, `required-reading.ts`, `reading-actions.ts`, `mentions.ts` и др.); у `inventory/` экшены разложены по доменам в `inventory/_actions/<домен>.ts` (`sync`, `assignment`, `documents`, `results`, `exclusions`, `resort`, `recount`, `draft`, `catalog`), общие хелперы — в `inventory/actions-shared.ts`. Импортировать нужный домен напрямую; barrel-реэкспорта намеренно нет, чтобы не тянуть весь модуль в клиентский граф.
 - `api/` — только то, что не укладывается в server actions: `cron/auto-archive-notifications`, `dadata/{address,party}` (прокси к DaData), `finance/transactions`.
 - [`src/middleware.ts`](src/middleware.ts) — обновление сессии Supabase на каждом запросе через `updateSession` из [`src/lib/supabase/middleware.ts`](src/lib/supabase/middleware.ts). Исключены `/api`, статика, `*.html` (GoTrue читает HTML-шаблоны писем из `/public/email-templates/`).
 

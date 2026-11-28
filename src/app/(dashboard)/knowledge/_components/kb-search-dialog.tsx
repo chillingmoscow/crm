@@ -14,6 +14,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { anotherDialogOpen } from "@/lib/dom/open-dialog";
 import { openCommandPalette } from "@/components/shared/command-palette";
 import { Loader2, Search, Sparkles, ArrowLeft } from "lucide-react";
+import { errorText } from "@/lib/actions/error-text";
 
 import { Command as CommandPrimitive } from "cmdk";
 
@@ -142,6 +143,8 @@ interface KbAiState {
 function KbSearchDialog({ open, onOpenChange, aiAskEnabled }: KbSearchDialogProps) {
   const router = useRouter();
   const [query, setQuery] = useState("");
+  // Человек выбрал результат стрелками — Enter открывает его, а не ИИ.
+  const pickedResultRef = useRef(false);
   const [hits, setHits] = useState<KbSearchHit[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchFailed, setSearchFailed] = useState(false);
@@ -226,7 +229,8 @@ function KbSearchDialog({ open, onOpenChange, aiAskEnabled }: KbSearchDialogProp
         loading: false,
         answer: result.answer,
         sources: result.sources,
-        error: result.error,
+        // Английский технический текст пользователю не показываем.
+        error: result.error ? errorText(new Error(result.error), "ИИ-поиск временно недоступен") : null,
       };
     });
   };
@@ -253,9 +257,18 @@ function KbSearchDialog({ open, onOpenChange, aiAskEnabled }: KbSearchDialogProp
             <CommandPrimitive.Input
               placeholder="Поиск по базе знаний…"
               value={query}
-              onValueChange={setQuery}
+              onValueChange={(next) => {
+                pickedResultRef.current = false;
+                setQuery(next);
+              }}
               onKeyDown={(event) => {
-                // Enter запускает «Спросить ИИ» (как ⏎ в AI-баннере по
+                // Стрелки — человек выбирает найденную страницу: тогда Enter
+                // открывает её (cmdk), а не спрашивает ИИ.
+                if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                  pickedResultRef.current = true;
+                  return;
+                }
+                // Иначе Enter запускает «Спросить ИИ» (как ⏎ в AI-баннере по
                 // дизайну WFrIM). Перехватываем до cmdk (он бы выбрал
                 // подсвеченный результат). stopPropagation — чтобы
                 // Command-root не обработал то же нажатие.
@@ -263,6 +276,7 @@ function KbSearchDialog({ open, onOpenChange, aiAskEnabled }: KbSearchDialogProp
                   event.key === "Enter" &&
                   aiAskEnabled &&
                   !ai &&
+                  !pickedResultRef.current &&
                   query.trim().length >= 4
                 ) {
                   event.preventDefault();

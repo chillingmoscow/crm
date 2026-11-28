@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { BellRing, Loader2, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
@@ -55,7 +54,6 @@ export function KbReadingActions({
   /** «Не нужно» рядом с «Попросить перечитать» (в «Обзоре»). */
   showDismiss?: boolean;
 }) {
-  const router = useRouter();
   const { confirm, dialog } = useConfirm();
   const [busy, setBusy] = useState<"remind" | "reread" | "dismiss" | null>(null);
   const name = `«${title.trim() || "Без названия"}»`;
@@ -64,8 +62,9 @@ export function KbReadingActions({
   async function run<T>(kind: "remind" | "reread" | "dismiss", action: () => Promise<T>, done: (value: T) => string) {
     setBusy(kind);
     try {
+      // Экран обновит само действие (revalidatePath по разделу); лишний
+      // router.refresh() перерисовывал его второй раз.
       toast.success(done(await action()));
-      router.refresh();
     } catch (error) {
       toast.error((error as Error).message);
     } finally {
@@ -107,17 +106,17 @@ export function KbReadingActions({
   return (
     <div className="flex flex-wrap items-center gap-2">
       {remindCount > 0 && (
-        <span data-tip={cooldown ? "Уже напоминали за последние сутки" : undefined}>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onRemind}
-            disabled={busy !== null || cooldown}
-          >
-            {busy === "remind" ? <Loader2 className="size-4 animate-spin" /> : <BellRing className="size-4" />}
-            Напомнить
-          </Button>
-        </span>
+        // Причина недоступности — в самой подписи: подсказку на неактивной
+        // кнопке с клавиатуры не открыть.
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onRemind}
+          disabled={busy !== null || cooldown}
+        >
+          {busy === "remind" ? <Loader2 className="size-4 animate-spin" /> : <BellRing className="size-4" />}
+          {cooldown ? "Уже напомнили" : "Напомнить"}
+        </Button>
       )}
       {changedAfterRead && (
         <>

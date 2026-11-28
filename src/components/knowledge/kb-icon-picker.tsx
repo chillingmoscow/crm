@@ -13,8 +13,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CategoryColorPicker, CATEGORY_COLORS } from "@/components/finance/category-color";
 import { normalizePaletteColor, paletteText, type PaletteColor } from "@/lib/palette";
-import { KB_PICKER_ICON_GROUPS, KB_PICKER_ICONS, type KbIcon } from "@/lib/knowledge/icons";
+import { KB_ICON_PICKER_COLUMNS, KB_PICKER_ICON_GROUPS, KB_PICKER_ICONS, type KbIcon } from "@/lib/knowledge/icons";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
+
+/** Колонки сетки значков — та же константа, что проверяет тест
+ *  `icon-picker-layout` (группы полными рядами, цвета — одной строкой). */
+const ICON_GRID_STYLE = { gridTemplateColumns: `repeat(${KB_ICON_PICKER_COLUMNS}, minmax(0, 1fr))` };
 
 interface KbIconPickerBodyProps {
   /** Текущая иконка: имя из реестра, emoji (legacy) или null. */
@@ -217,7 +221,7 @@ export function KbIconPickerBody({
             Ничего не найдено
           </p>
         ) : query.trim() ? (
-          <div className="grid grid-cols-7 gap-1">{filteredIcons.map(renderTile)}</div>
+          <div className="grid gap-1" style={ICON_GRID_STYLE}>{filteredIcons.map(renderTile)}</div>
         ) : (
           <div className="flex flex-col gap-2">
             {KB_PICKER_ICON_GROUPS.map(({ group, items }) => (
@@ -225,7 +229,7 @@ export function KbIconPickerBody({
                 <div className="sticky top-0 z-10 bg-popover px-1 py-1 text-xs font-medium text-muted-foreground">
                   {group}
                 </div>
-                <div className="grid grid-cols-7 gap-1">{items.map(renderTile)}</div>
+                <div className="grid gap-1" style={ICON_GRID_STYLE}>{items.map(renderTile)}</div>
               </div>
             ))}
           </div>

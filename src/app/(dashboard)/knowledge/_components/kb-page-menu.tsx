@@ -247,7 +247,8 @@ export function KbPageMenu(props: KbPageMenuProps) {
     router.push(`/knowledge/${slug}`);
   };
 
-  // Хоткеи действий страницы (Mod+Shift+L/F/D/H). Вызываем те же
+  // Хоткеи действий страницы (Mod+Shift+L/D/H; F — в kb-favorite-toggle,
+  // P — в kb-tree-create-menu). Вызываем те же
   // обработчики, что и пункты ⋯-меню — flush-before-lock, optimistic
   // override и тосты об ошибках живут внутри них. Нет права → тихий
   // no-op (как и скрытый пункт меню).

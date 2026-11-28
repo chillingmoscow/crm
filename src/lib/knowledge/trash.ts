@@ -4,12 +4,11 @@
  */
 export type KbTrashBucket = "today" | "yesterday" | "week" | "earlier";
 
-export const KB_TRASH_BUCKET_ORDER: KbTrashBucket[] = ["today", "yesterday", "week", "earlier"];
-
 export const KB_TRASH_BUCKET_LABEL: Record<KbTrashBucket, string> = {
   today: "Сегодня",
   yesterday: "Вчера",
-  week: "На прошлой неделе",
+  // 2–7 дней назад — не календарная «прошлая неделя» (как в уведомлениях).
+  week: "За неделю",
   earlier: "Ранее",
 };
 

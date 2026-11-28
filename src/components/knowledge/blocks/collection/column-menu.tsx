@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   ArrowDownAZ,
@@ -74,7 +74,15 @@ export function CollectionTitleColumnMenu({
     setNameDraft(name);
   }, [name]);
 
+  // Esc — отмена: поле теряет фокус (сами или когда меню закрывается),
+  // и blur не должен сохранить введённое.
+  const cancelNameRef = useRef(false);
   const commitName = () => {
+    if (cancelNameRef.current) {
+      cancelNameRef.current = false;
+      setNameDraft(name);
+      return;
+    }
     const nextName = nameDraft.trim() || "Страница";
     setNameDraft(nextName);
     onRename(nextName);
@@ -106,6 +114,11 @@ export function CollectionTitleColumnMenu({
             if (event.key === "Enter") {
               event.preventDefault();
               commitName();
+              event.currentTarget.blur();
+            }
+            if (event.key === "Escape") {
+              cancelNameRef.current = true;
+              setNameDraft(name);
               event.currentTarget.blur();
             }
           }}
@@ -205,12 +218,26 @@ export function CollectionColumnMenu({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: re-sync only on field id change
   }, [field.id]);
 
+  // Esc в названии и описании — отмена: blur после Esc (свой или при
+  // закрытии меню) не сохраняет введённое.
+  const cancelNameRef = useRef(false);
+  const cancelDescriptionRef = useRef(false);
   const commitName = () => {
+    if (cancelNameRef.current) {
+      cancelNameRef.current = false;
+      setName(field.name);
+      return;
+    }
     const nextName = name.trim();
     setName(nextName);
     if (nextName !== field.name) onUpdate({ name: nextName });
   };
   const commitDescription = (value = descriptionDraft) => {
+    if (cancelDescriptionRef.current) {
+      cancelDescriptionRef.current = false;
+      setDescriptionDraft(field.description ?? "");
+      return;
+    }
     const nextDescription = value.trim().slice(0, 280);
     setDescriptionDraft(nextDescription);
     onUpdate({ description: nextDescription || undefined });
@@ -350,6 +377,11 @@ export function CollectionColumnMenu({
               event.preventDefault();
               event.currentTarget.blur();
             }
+            if (event.key === "Escape") {
+              cancelNameRef.current = true;
+              setName(field.name);
+              event.currentTarget.blur();
+            }
           }}
           className="h-9 min-w-0 border-0 bg-transparent px-1 shadow-none focus-visible:ring-0"
           aria-label="Название свойства"
@@ -390,6 +422,7 @@ export function CollectionColumnMenu({
             }
             if (event.key === "Escape") {
               event.preventDefault();
+              cancelDescriptionRef.current = true;
               setDescriptionDraft(field.description ?? "");
               event.currentTarget.blur();
             }

@@ -83,6 +83,7 @@ import {
   makeProperty,
 } from "./page-properties/helpers";
 import { PropertyEditorPopover } from "./page-properties/option-editor-popover";
+import { errorText } from "@/lib/actions/error-text";
 
 interface KbPagePropertiesProps {
   /** Идентификатор страницы или шаблона. */
@@ -169,7 +170,7 @@ export function KbPageProperties({
         : { templateId: targetId, properties: next };
     const { error } = await action(payload as never);
     if (error) {
-      toast.error(`Не удалось сохранить свойства: ${error}`);
+      toast.error(errorText(new Error(error), "Не удалось сохранить свойства"));
       return;
     }
     lastSavedRef.current = serialized;

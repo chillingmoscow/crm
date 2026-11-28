@@ -13,7 +13,7 @@ import { getDeepseekClient, DEEPSEEK_MODELS } from "@/lib/ai/deepseek-client";
  *
  * Pipeline:
  *   1. Permission check (kb.ask_ai) + accounts.ai_enabled.
- *   2. Embed запроса юзера через SiliconFlow bge-m3.
+ *   2. Embed запроса юзера через SiliconFlow (Qwen3-Embedding-0.6B, 1024 dim).
  *   3. Top-K cosine search через `kb_search_embeddings` RPC
  *      (tenant-isolation в самой RPC).
  *   4. Передаём top-K chunks как context в DeepSeek deepseek-chat
@@ -90,7 +90,7 @@ export async function askKbAi(input: {
     .eq("id", accountId as unknown as string)
     .maybeSingle();
   if (!account?.ai_enabled) {
-    return { answer: null, sources: [], error: "AI отключён для этого аккаунта" };
+    return { answer: null, sources: [], error: "ИИ отключён для этого аккаунта" };
   }
 
   // 1. Embed query.
@@ -98,7 +98,7 @@ export async function askKbAi(input: {
   try {
     const embeddings = await embedTexts([question]);
     if (!embeddings[0]) {
-      return { answer: null, sources: [], error: "Empty embedding" };
+      return { answer: null, sources: [], error: "ИИ-поиск временно недоступен. Обратитесь к администратору." };
     }
     queryEmbedding = embeddings[0];
   } catch (err) {

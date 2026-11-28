@@ -897,11 +897,10 @@ input:-webkit-autofill {
  * ────────────────────────────────────────────────────────────────── */
 
 /* ── Slash-меню (frame 04c · MIEVl) ────────────────────────────────
- * Notion-style вертикальный список вставки блоков. Дизайн упрощённый:
- * у каждого пункта — только icon-chip + title. Description/shortcut
- * рендерятся BN-default'ом, прячем их в основном списке. (Hover-hold
- * tooltip с полным описанием — отдельный follow-up: требует custom
- * suggestionMenuComponent.) */
+ * Notion-style вертикальный список вставки блоков: у пункта значок 16px
+ * серым и название в одну строку. Описание в списке скрыто — его
+ * показывает подсказка при удержании курсора (KbSlashMenu). Те же правила
+ * у меню «@» (KbMentionList в kb-mention-menu.tsx). */
 .bn-suggestion-menu {
   width: 320px !important;
   padding: 6px !important;
@@ -922,10 +921,9 @@ input:-webkit-autofill {
   padding: 8px 12px 4px 12px !important;
 }
 
-/* Item: упрощённая компоновка (значок 16 + title 14/400 в одну
- * строку, без subtext'а в основном списке). Subtext всё ещё в DOM —
- * скрываем display:none, чтобы будущий hover-hold tooltip мог его
- * вытащить, не меняя BN-render. */
+/* Пункт: значок 16 + название 14 / 400 в одну строку. Вторая строка
+ * (описание) остаётся в разметке BN, в «/» она скрыта ниже, а текст
+ * описания показывает подсказка при удержании курсора. */
 .bn-suggestion-menu .bn-suggestion-menu-item {
   padding: 8px 12px !important;
   gap: 10px !important;
@@ -963,15 +961,10 @@ input:-webkit-autofill {
   font-weight: 400;
   line-height: 1.3;
 }
-/* Subtext styling в общих SuggestionMenu (`@`-меню упоминаний). По
- * дизайну frame 04c для slash-меню description'а ВИДИМО НЕТ — он
- * показывается только в hover-hold tooltip (см. ниже `.kb-slash-tooltip`).
- * `@`-меню же рендерит subtext «Страница» / «Сотрудник» обычным
- * способом для дизамбигуации.
- *
- * Слаш-меню рендерится через KbSlashMenu (kb-slash-menu.tsx), которая
- * вешает на root уникальный класс `.kb-slash-menu`. Этот класс
- * скрывает subtext-row только в нём. */
+/* Вторая строка пункта — 12px серым, если она есть. В «/» (KbSlashMenu,
+ * класс `.kb-slash-menu`) её нет: описание — в подсказке при удержании
+ * курсора (`.kb-slash-tooltip`). В «@» второй строки нет совсем: вместо
+ * «Страница» / «Сотрудник» у пунктов — подписи групп (KbMentionList). */
 .bn-suggestion-menu .bn-suggestion-menu-item > .flex-1 > div:nth-child(2) {
   font-size: 12px;
   color: hsl(var(--muted-foreground));

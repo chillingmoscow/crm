@@ -272,9 +272,28 @@ export function KbPageComments({
     return null;
   }
 
+  // Обсуждение стоит над текстом (решение владельца 28.11.2026: зашёл —
+  // сразу видишь, что есть на что ответить). Пока комментариев нет —
+  // только тихая строка «Написать комментарий…», без заголовка и линий,
+  // чтобы не отодвигать текст на каждой странице.
+  // Пока грузятся — ничего: иначе над текстом мелькает то пустая строка,
+  // то раздел с заголовком.
+  if (loading) return null;
+  if (visibleComments.length === 0) {
+    return canComment ? (
+      <div className="mb-2">
+        <PageCommentComposer
+          currentUserName={currentUserName}
+          currentUserAvatarUrl={currentUserAvatarUrl}
+          onSubmit={handleSubmitNew}
+        />
+      </div>
+    ) : null;
+  }
+
   return (
-    <KbDocSection title="Обсуждение" count={visibleComments.length}>
-      {!loading && comments.length > 0 && (
+    <KbDocSection title="Обсуждение" count={visibleComments.length} divider="bottom">
+      {comments.length > 0 && (
         <div className="flex flex-col gap-5">
           {comments.map((c) => (
             <PageCommentItem

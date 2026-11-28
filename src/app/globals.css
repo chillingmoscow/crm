@@ -965,6 +965,25 @@ input:-webkit-autofill {
   display: none !important;
 }
 
+/* Внутренние блоки пункта (заголовок, подпись) BN помечает тем же классом
+ * `bn-suggestion-menu-item`, и отступ 8×12 ложился на них второй раз:
+ * пункт «@» вырастал до 66px. Отступ — только у самого пункта; пустая
+ * вторая строка места не занимает. */
+.bn-suggestion-menu .bn-suggestion-menu-item .bn-suggestion-menu-item {
+  padding: 0 !important;
+}
+.bn-suggestion-menu .bn-suggestion-menu-item > .flex-1 > div:empty {
+  display: none !important;
+}
+
+/* Меню «@»: слева аватар 20px (значок страницы — 16px). */
+.bn-suggestion-menu.kb-mention-menu
+  .bn-suggestion-menu-item
+  > div[data-position="left"] {
+  width: 20px !important;
+  height: 20px !important;
+}
+
 /* Шорткат-подсказка (badge «⌘⇧6» и т.п.) — BN-shadcn рендерит её как
  * `div[data-position="right"]` с <Badge> внутри. На тач-устройствах
  * физической клавиатуры нет → шорткат бессмысленен и только шумит.

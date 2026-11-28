@@ -190,7 +190,7 @@ export function KbTreeNodeMenu({
             className={menuItemClass}
           >
             <ExternalLink className={menuIconClass} />
-            <span className="flex-1">Открыть в новой вкладке</span>
+            <span className="flex-1">В новой вкладке</span>
           </DropdownMenuItem>
 
           {visibleActions && <DropdownMenuSeparator />}

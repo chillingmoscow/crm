@@ -170,7 +170,7 @@ export function OptionValuePicker({
           type="button"
           aria-label="Выбрать вариант"
           className="min-h-7 w-full inline-flex flex-wrap items-center gap-1
-                     rounded px-1 text-left text-[13px] transition-colors"
+                     rounded text-left text-[13px] transition-colors"
         >
           {value.length > 0 ? (
             value.map((v) => (

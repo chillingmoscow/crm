@@ -45,7 +45,8 @@ export function OptionChip({
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-md px-1.5 py-0.5 text-xs font-medium leading-tight max-w-full",
+        // Форма и цвет — как у StatusBadge: pill 12 / 500.
+        "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium leading-tight max-w-full",
         resolveOptionColor(value, explicit),
         className,
       )}

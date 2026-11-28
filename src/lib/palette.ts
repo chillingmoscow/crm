@@ -168,12 +168,28 @@ export function paletteDot(c: string | null | undefined): string {
 /** Класс для chip'а (фон + текст одной строкой) — для select-options
  *  property-блоков, тегов и т.п. Сочетает paletteBg + paletteText.
  *  Для default/null — нейтральный muted-chip (читается как «без цвета»). */
+/** Чип варианта — тот же рецепт, что у `StatusBadge` (DS «Статусные
+ *  бейджи»): `bg-{c}-500/10` и `text-{c}-700 / dark 400`, без рамки.
+ *  Заливка карточек и ячеек (`paletteBg`) остаётся светлой. */
+const CHIP: Record<Exclude<PaletteColor, "default">, string> = {
+  gray:   "bg-gray-500/10 text-gray-700 dark:text-gray-300",
+  brown:  "bg-[#92664a]/10 text-[#6e4937] dark:text-[#d6b89e]",
+  orange: "bg-orange-500/10 text-orange-700 dark:text-orange-400",
+  yellow: "bg-yellow-500/10 text-yellow-700 dark:text-yellow-400",
+  green:  "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
+  blue:   "bg-brand/10 text-brand",
+  purple: "bg-violet-500/10 text-violet-700 dark:text-violet-400",
+  pink:   "bg-pink-500/10 text-pink-700 dark:text-pink-400",
+  red:    "bg-red-500/10 text-red-700 dark:text-red-400",
+};
+
 export function paletteChip(c: string | null | undefined): string {
   const n = normalizePaletteColor(c);
   if (!n || n === "default") {
-    return "bg-muted text-foreground";
+    // Как нейтральный бейдж.
+    return "bg-muted text-muted-foreground";
   }
-  return `${BG[n]} ${TEXT[n]}`;
+  return CHIP[n];
 }
 
 /** Свотч-грид для option-color picker (sheerly.pen → mzhv4):

@@ -48,11 +48,15 @@ export function CollectionViewIconPicker({
         onClick={stopBlockInteraction}
         onOpenAutoFocus={(event) => event.preventDefault()}
       >
+        {/* Цвет значка вида не хранится — без блока «Цвет»; сброс возвращает
+            значок по умолчанию. */}
         <KbIconPickerBody
           value={value}
           color={null}
           onChange={(next) => onChange(next.icon ?? "database")}
           onCommitClose={() => setOpen(false)}
+          hideColor
+          clearLabel="Значок по умолчанию"
         />
       </PopoverContent>
     </Popover>

@@ -189,8 +189,14 @@ export function KbFloatingThread({ thread }: KbFloatingThreadProps) {
   if (isTouch) {
     return (
       <KbMobileCommentSheet
-        title={thread.resolved ? "Решено" : "Обсуждение"}
-        headerExtra={resolveButton}
+        title="Обсуждение"
+        // «Решено» — тем же StatusBadge, что в окне на компьютере.
+        headerExtra={
+          <span className="flex items-center gap-2">
+            {thread.resolved && <StatusBadge tone="success">Решено</StatusBadge>}
+            {resolveButton}
+          </span>
+        }
         onClose={() => ext.selectThread?.(undefined)}
       >
         {commentsList}

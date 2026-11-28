@@ -70,6 +70,7 @@ export function DepartmentIconPicker({
           onChange={onChange}
           onCommitClose={() => setOpen(false)}
           commitColorWithoutIcon
+          clearLabel="Значок по умолчанию"
         />
       </PopoverContent>
     </Popover>

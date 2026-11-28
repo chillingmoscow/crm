@@ -266,7 +266,8 @@ export function KbFloatingComposer({
     <div
       className={cn(
         "bn-thread",
-        "rounded-xl border border-border bg-card shadow-md",
+        // Как окно треда и остальные всплывающие: радиус 10, bg-popover.
+        "rounded-[10px] border bg-popover text-popover-foreground shadow-md",
         "min-w-[320px] max-w-[420px]",
       )}
     >

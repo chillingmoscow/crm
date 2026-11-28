@@ -109,7 +109,7 @@ function KbPageMentionChip(props: {
       <a
         href={`/knowledge/${props.slug}`}
         contentEditable={false}
-        className="inline-flex items-center gap-1 px-1 py-0.5 rounded text-muted-foreground/70 font-semibold line-through decoration-muted-foreground/40 no-underline hover:bg-accent transition-colors"
+        className="inline-flex items-center gap-1 px-1 py-0.5 rounded text-muted-foreground/70 font-semibold line-through decoration-muted-foreground/40 hover:bg-accent transition-colors"
         draggable={false}
         data-tip="Страница в корзине — открыть только для чтения"
         data-kb-page-mention={props.slug}

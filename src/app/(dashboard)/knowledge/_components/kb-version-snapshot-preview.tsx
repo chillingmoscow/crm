@@ -46,7 +46,7 @@ export function KbVersionSnapshotPreview({
     <div className="mx-auto flex w-full max-w-[720px] flex-col gap-6 px-6 py-8">
       <header className="space-y-4">
         <KbPageIcon icon={icon} color={iconColor} size={44} />
-        <h2 className="text-[28px] font-bold leading-[1.2] tracking-[-0.5px] text-foreground">
+        <h2 className="text-[28px] font-bold leading-[1.2] tracking-[-0.25px] text-foreground">
           {title || "Без названия"}
         </h2>
       </header>

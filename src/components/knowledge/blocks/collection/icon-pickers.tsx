@@ -36,23 +36,27 @@ export function CollectionViewIconPicker({
           onMouseDown={stopBlockInteraction}
           onClick={stopBlockInteraction}
         >
-          <KbPageIcon icon={value} color={null} size={18} />
+          <KbPageIcon icon={value} color={null} size={16} />
         </button>
       </PopoverTrigger>
       <PopoverContent
         align="start"
         sideOffset={6}
-        className="w-[380px] p-0 rounded-[10px]"
+        className="w-[292px] p-0"
         onPointerDown={stopBlockInteraction}
         onMouseDown={stopBlockInteraction}
         onClick={stopBlockInteraction}
         onOpenAutoFocus={(event) => event.preventDefault()}
       >
+        {/* Цвет значка вида не хранится — без блока «Цвет»; сброс возвращает
+            значок по умолчанию. */}
         <KbIconPickerBody
           value={value}
           color={null}
           onChange={(next) => onChange(next.icon ?? "database")}
           onCommitClose={() => setOpen(false)}
+          hideColor
+          clearLabel="Значок по умолчанию"
         />
       </PopoverContent>
     </Popover>
@@ -94,7 +98,7 @@ export function CollectionFieldIconPicker({
       <PopoverContent
         align="start"
         sideOffset={6}
-        className="w-[380px] p-0 rounded-[10px]"
+        className="w-[292px] p-0"
         onPointerDown={stopBlockInteraction}
         onMouseDown={stopBlockInteraction}
         onClick={stopBlockInteraction}

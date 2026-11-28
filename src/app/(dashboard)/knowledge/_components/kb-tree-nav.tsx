@@ -389,7 +389,6 @@ export function KbTreeNav({
           {localFavorites.length > 0 && (
             <KbFavoritesSection
               favorites={localFavorites}
-              activeSlug={activeSlug}
               descendantCounts={descendantCounts}
               onFavoriteChange={handleFavoriteChange}
               canCreate={canCreate}
@@ -505,7 +504,6 @@ function KbRootDropZone({
 
 function KbFavoritesSection({
   favorites,
-  activeSlug,
   descendantCounts,
   onFavoriteChange,
   canCreate,
@@ -513,7 +511,6 @@ function KbFavoritesSection({
   canDelete,
 }: {
   favorites: KbFavoritePage[];
-  activeSlug?: string;
   descendantCounts: Map<string, number>;
   onFavoriteChange: (page: KbFavoritePage, favorited: boolean) => void;
   canCreate: boolean;
@@ -534,16 +531,17 @@ function KbFavoritesSection({
   return (
     <div className="flex flex-col gap-0.5">
       <div className={TREE_CAPTION}>Избранное</div>
+      {/* Избранное — ярлыки: открытая страница подсвечивается одна, в
+          «Страницах», а не дважды (замечание владельца 28.11.2026). */}
       {favorites.map((p) => {
-        const isActive = activeSlug === p.slug;
         return (
           <div
             key={p.id}
-            className={cn(TREE_ROW, "font-medium", isActive ? TREE_ROW_ACTIVE : TREE_ROW_IDLE)}
+            className={cn(TREE_ROW, "font-medium", TREE_ROW_IDLE)}
           >
             <Link
               href={`/knowledge/${p.slug}`}
-              className="flex min-w-0 flex-1 items-center gap-2.5 self-stretch"
+              className={TREE_ROW_LINK}
               data-tip={p.title}
               data-tip-overflow
             >
@@ -783,7 +781,7 @@ function KbTreeItem({
         {/* Title (link). Заблокированность — в подсказке строки. */}
         <Link
           href={`/knowledge/${node.slug}`}
-          className="flex min-w-0 flex-1 items-center gap-2.5 self-stretch"
+          className={TREE_ROW_LINK}
           data-tip={displayIsLocked ? `${displayTitle} (заблокирована)` : displayTitle}
           data-tip-overflow={displayIsLocked ? undefined : true}
         >
@@ -1053,8 +1051,12 @@ const TREE_CAPTION =
   "px-3 pb-2 pt-[18px] text-xs font-medium uppercase tracking-[0.6px] text-muted-foreground";
 
 /** Строка страницы: 36px, 13px, отступ слева как у пунктов меню. */
+// Рамку фокуса рисует сама строка по своему скруглению, а не ссылка
+// внутри неё (была прямоугольная системная рамка поверх подсветки).
 const TREE_ROW =
-  "group flex min-h-9 items-center gap-1 rounded-lg pl-3 pr-1 text-[13px] transition-colors";
+  "group flex min-h-9 items-center gap-1 rounded-lg pl-3 pr-1 text-[13px] transition-colors has-[a:focus-visible]:ring-2 has-[a:focus-visible]:ring-ring";
+const TREE_ROW_LINK =
+  "flex min-w-0 flex-1 items-center gap-2.5 self-stretch outline-none";
 const TREE_ROW_IDLE = "text-sidebar-foreground hover:bg-sidebar-accent";
 const TREE_ROW_ACTIVE = "bg-brand/10 font-semibold text-brand";
 const TREE_ROW_ACTIONS =

@@ -129,20 +129,20 @@ export function KbTreeCreateMenu({
         <DropdownMenuContent align="end" className="w-56">
           {canCreate && (
             <DropdownMenuItem onSelect={() => void createRoot()}>
-              <FilePlus />
+              <FilePlus className="size-4 shrink-0" />
               Новая страница
               <DropdownMenuShortcut>⇧⌘P</DropdownMenuShortcut>
             </DropdownMenuItem>
           )}
           {canCreate && (
             <DropdownMenuItem onSelect={() => setTemplatesOpen(true)}>
-              <LayoutTemplate />
+              <LayoutTemplate className="size-4 shrink-0" />
               Из шаблона
             </DropdownMenuItem>
           )}
           {canImport && (
             <DropdownMenuItem onSelect={() => setImportOpen(true)}>
-              <Upload />
+              <Upload className="size-4 shrink-0" />
               Импорт
             </DropdownMenuItem>
           )}

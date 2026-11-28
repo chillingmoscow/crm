@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Lock, AlertTriangle, Clock } from "lucide-react";
+import { BookCheck, Clock, Lock } from "lucide-react";
 
 import { useCoarsePointer } from "@/hooks/use-mobile";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
@@ -180,7 +180,8 @@ export function KbLinkPreview() {
     <div
       ref={tooltipRef}
       role="tooltip"
-      className="fixed z-50 pointer-events-none rounded-lg border border-border bg-card shadow-lg"
+      // Вид — как у HoverCard приложения: радиус 10, shadow-md, фон popover.
+      className="fixed z-50 pointer-events-none rounded-[10px] border bg-popover text-popover-foreground shadow-md"
       style={{ left, top, width: TOOLTIP_W }}
     >
       {preview.kind === "page" ? (
@@ -194,30 +195,29 @@ export function KbLinkPreview() {
 
 function PagePreviewBody({ data }: { data: KbPagePreview }) {
   return (
-    <div className="flex items-start gap-2 p-3">
-      <KbPageIcon icon={data.icon} color={data.icon_color} size={20} />
+    <div className="flex items-start gap-2.5 p-3">
+      <span className="mt-0.5 flex shrink-0">
+        <KbPageIcon icon={data.icon} color={data.icon_color} size={16} />
+      </span>
       <div className="flex-1 flex flex-col gap-1 min-w-0">
-        <div className="flex items-center gap-1.5 text-sm font-semibold text-foreground truncate">
+        <div className="flex items-center gap-1.5 text-sm font-medium text-foreground truncate">
           <span className="truncate">{data.title || "Без названия"}</span>
           {data.is_locked && (
-            <Lock className="size-3 shrink-0 text-amber-600 dark:text-amber-400" />
+            <Lock className="size-3.5 shrink-0 text-muted-foreground" aria-label="Заблокирована" />
           )}
           {data.required_reading && (
-            <AlertTriangle className="size-3 shrink-0 fill-yellow-400 text-yellow-700 dark:text-yellow-400" />
+            <BookCheck
+              className="size-3.5 shrink-0 text-amber-700 dark:text-amber-400"
+              aria-label="Обязательно к прочтению"
+            />
           )}
         </div>
-        {data.snippet ? (
-          <p className="text-[12px] leading-snug text-muted-foreground line-clamp-3">
-            {data.snippet}
-          </p>
-        ) : (
-          <p className="text-[12px] italic text-muted-foreground/70">
-            Страница пока пустая
-          </p>
-        )}
+        <p className="text-[13px] leading-snug text-muted-foreground line-clamp-3">
+          {data.snippet || "Страница пока пустая"}
+        </p>
         {data.reading_minutes !== null && (
-          <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground tabular-nums">
-            <Clock className="size-3" />≈ {data.reading_minutes} мин
+          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground tabular-nums">
+            <Clock className="size-3.5" />≈ {data.reading_minutes} мин
           </span>
         )}
       </div>
@@ -235,7 +235,7 @@ function StaffPreviewBody({ data }: { data: KbStaffPreview }) {
         interactive={false}
       />
       <div className="flex-1 flex flex-col min-w-0">
-        <span className="text-sm font-semibold text-foreground truncate">
+        <span className="text-sm font-medium text-foreground truncate">
           {data.full_name || "Без имени"}
         </span>
         {data.role_name && (

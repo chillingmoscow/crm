@@ -379,11 +379,9 @@ function SidebarBody({
                   key={section.label}
                   collapsed={collapsed}
                   initialHidden={kbSidebarHidden}
-                  href={
-                    userPermissionsSet.has("kb.view_analytics")
-                      ? "/knowledge/overview"
-                      : "/knowledge"
-                  }
+                  // Всех ведём на «Главную» базы (решение владельца
+                  // 28.11.2026); «Обзор» — пункт в дереве при праве.
+                  href="/knowledge"
                 />
               );
             }

@@ -58,7 +58,10 @@ export function KbTreeNodeMenu({
   const [duplicatePending, setDuplicatePending] = useState(false);
   const [, startFavoriteTransition] = useTransition();
 
-  const visibleActions = canCreate || canDuplicate || canDelete;
+  // Группа «создать / дублировать»; удаление — своя группа под отдельным
+  // разделителем. Без прав на создание остаётся одно удаление — тогда
+  // разделитель один, а не два подряд.
+  const visibleActions = canCreate || canDuplicate;
 
   const stopRowInteraction = (event: SyntheticEvent) => {
     event.stopPropagation();
@@ -132,22 +135,23 @@ export function KbTreeNodeMenu({
             onClick={stopRowInteraction}
             onPointerDown={stopRowInteraction}
             className={cn(
-              "flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground",
-              "opacity-0 transition-opacity hover:bg-sidebar-accent/60 hover:text-foreground",
+              // Как соседняя «+»: 24px, радиус 6, значок 16px.
+              "flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground",
+              "opacity-0 transition-opacity hover:bg-sidebar-accent hover:text-foreground",
               "group-hover:opacity-100 group-focus-within:opacity-100",
               // На сенсорном экране наведения нет — меню узла видно всегда.
               "[@media(pointer:coarse)]:opacity-100",
-              open && "opacity-100 bg-sidebar-accent/60 text-foreground",
+              open && "opacity-100 bg-sidebar-accent text-foreground",
             )}
           >
-            <MoreHorizontal className="size-3.5" />
+            <MoreHorizontal className="size-4" />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
           side="right"
           align="start"
           sideOffset={6}
-          className="w-[242px] p-1.5 rounded-[10px] shadow-lg"
+          className="w-56"
           onClick={stopRowInteraction}
           onPointerDown={stopRowInteraction}
         >
@@ -161,7 +165,7 @@ export function KbTreeNodeMenu({
             <Star
               className={cn(
                 menuIconClass,
-                favorited && "fill-yellow-400 text-yellow-500",
+                favorited && "fill-amber-400 text-amber-500",
               )}
             />
             <span className="flex-1">
@@ -220,6 +224,7 @@ export function KbTreeNodeMenu({
               <span className="flex-1">Дублировать</span>
             </DropdownMenuItem>
           )}
+          {canDelete && <DropdownMenuSeparator />}
           {canDelete && (
             <DropdownMenuItem
               onSelect={() =>
@@ -250,6 +255,7 @@ export function KbTreeNodeMenu({
   );
 }
 
-const menuItemClass =
-  "h-8 px-2 rounded-md text-[13px] font-medium leading-none gap-2.5";
-const menuIconClass = "size-4 shrink-0 text-muted-foreground";
+// Как пункты остальных меню приложения (DropdownMenuItem, TableRowMenu):
+// 14 / 400, значок 16px цвета текста.
+const menuItemClass = "gap-2";
+const menuIconClass = "size-4 shrink-0";

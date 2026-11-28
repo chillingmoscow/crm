@@ -179,20 +179,30 @@ export function KbRequiredReadingBanner({
 
   const minutes = readingMinutes !== null ? ` · ≈ ${readingMinutes} мин` : "";
 
+  const showStats = stats !== null && stats.total > 0;
+  const showReaders = (canSeeReaders || showStats) && Boolean(pageSlug);
+  const showConfirm = plate.kind === "unread";
+  const showSecondRow = showStats || showReaders || showConfirm;
+  const showGateHint = plate.kind === "unread" && !plate.canConfirm;
+  // Левая часть второй строки — только когда в ней есть что показать:
+  // пустой блок на телефоне занимал отдельную строку и давал лишний зазор.
+  const showLeft = showStats || showGateHint;
+
   // Плашка в колонке документа: встроенное предупреждение DS (amber) или
-  // подтверждение (emerald); руководителю справа — сколько прочитали.
+  // подтверждение (emerald). Раскладка постоянная — заголовок сверху, под
+  // ним строка «состояние слева, кнопки справа»: раньше один ряд с
+  // переносом перестраивался, когда появлялась статистика (сразу после
+  // включения обязательного чтения её ещё нет), и плашка «прыгала».
   return (
     <div
       className={cn(
-        // Не хватает места — правая часть (статистика, кнопки) уходит на
-        // вторую строку, заголовок не обрезается.
-        "flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border p-3 text-sm",
+        "flex flex-col gap-2 rounded-lg border p-3 text-sm",
         plate.kind === "read"
           ? "border-emerald-500/30 bg-emerald-500/10"
           : "border-amber-500/30 bg-amber-500/10",
       )}
     >
-      <div className="flex min-w-[14rem] flex-1 items-center gap-2.5">
+      <div className="flex min-w-0 items-center gap-2.5">
         {plate.kind === "read" ? (
           <Check className="size-4 shrink-0 text-emerald-700 dark:text-emerald-400" />
         ) : plate.reread ? (
@@ -214,59 +224,65 @@ export function KbRequiredReadingBanner({
         </span>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 max-sm:w-full">
-        {stats && stats.total > 0 && (
-          <>
-            <span className="text-[13px] tabular-nums text-muted-foreground">
-              Прочитали {stats.read} из {stats.total}
-            </span>
-            <span
-              className="h-1.5 w-[90px] overflow-hidden rounded-full bg-brand/15"
-              role="progressbar"
-              aria-label="Прочитали"
-              aria-valuenow={stats.read}
-              aria-valuemin={0}
-              aria-valuemax={stats.total}
-            >
-              <span
-                className="block h-full rounded-full bg-brand"
-                style={{ width: `${Math.round((stats.read / stats.total) * 100)}%` }}
-              />
-            </span>
-          </>
-        )}
-        {(canSeeReaders || (stats && stats.total > 0)) && pageSlug && (
-          <Button variant="outline" size="sm" asChild>
-            <Link href={`/knowledge/${pageSlug}/required-reading`}>Кто прочитал</Link>
-          </Button>
-        )}
-        {plate.kind === "unread" && (
-          <>
-            {!plate.canConfirm && (
+      {showSecondRow && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 sm:pl-[26px]">
+          {showLeft && (
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+            {showStats && stats && (
+              <span className="flex items-center gap-2">
+                <span className="whitespace-nowrap text-[13px] tabular-nums text-muted-foreground">
+                  Прочитали {stats.read} из {stats.total}
+                </span>
+                <span
+                  className="h-1.5 w-[90px] shrink-0 overflow-hidden rounded-full bg-brand/15"
+                  role="progressbar"
+                  aria-label="Прочитали"
+                  aria-valuenow={stats.read}
+                  aria-valuemin={0}
+                  aria-valuemax={stats.total}
+                >
+                  <span
+                    className="block h-full rounded-full bg-brand"
+                    style={{ width: `${Math.round((stats.read / stats.total) * 100)}%` }}
+                  />
+                </span>
+              </span>
+            )}
+            {showGateHint && (
               <span className="text-[13px] text-muted-foreground">
                 Сначала прочитайте страницу
               </span>
             )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onConfirm}
-              disabled={pending || !plate.canConfirm}
-              className="max-sm:w-full"
-            >
-              {pending ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <Check className="size-4" />
-              )}
-              Прочитано
-            </Button>
-          </>
-        )}
-      </div>
+          </div>
+          )}
+          <div className="ml-auto flex flex-wrap items-center gap-2 max-sm:w-full">
+            {showReaders && (
+              <Button variant="outline" size="sm" asChild>
+                <Link href={`/knowledge/${pageSlug}/required-reading`}>Кто прочитал</Link>
+              </Button>
+            )}
+            {plate.kind === "unread" && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onConfirm}
+                disabled={pending || !plate.canConfirm}
+                className="max-sm:flex-1"
+              >
+                {pending ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Check className="size-4" />
+                )}
+                Прочитано
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
 
       {plate.changedAfterRead && (
-        <div className="flex basis-full flex-wrap items-center gap-x-3 gap-y-2 border-t border-foreground/10 pt-2">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-foreground/10 pt-2">
           <span className="flex min-w-0 flex-1 items-center gap-2 text-[13px] text-muted-foreground">
             <RotateCcw className="size-4 shrink-0" />
             Изменена после прочтения

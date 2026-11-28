@@ -252,16 +252,17 @@ export function KbThreadGutterIndicators() {
             "inline-flex items-center gap-1 rounded-md",
             // На touch компактнее, чтобы не съедать место над текстом.
             isTouch ? "px-1 h-5" : "px-1.5 h-6",
-            "bg-amber-50 hover:bg-amber-100",
-            "dark:bg-amber-900/30 dark:hover:bg-amber-900/50",
+            // Рецепт бейджа DS: тон {c}-500/10, без рамки и тени; рамка
+            // фокуса — кольцом --ring, а не системной.
+            "bg-amber-500/10 hover:bg-amber-500/20",
             "text-amber-700 dark:text-amber-400",
             "transition-colors cursor-pointer z-10",
-            "shadow-sm border border-amber-200/60 dark:border-amber-700/40",
+            "outline-none focus-visible:ring-2 focus-visible:ring-ring",
           )}
         >
           <MessageSquare className={isTouch ? "size-3" : "size-3.5"} />
           {it.count > 1 && (
-            <span className="text-[11px] font-semibold leading-none tabular-nums">
+            <span className="text-xs font-semibold leading-none tabular-nums">
               {it.count}
             </span>
           )}

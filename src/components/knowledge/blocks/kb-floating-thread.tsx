@@ -28,6 +28,7 @@ import type {
 } from "@blocknote/core/comments";
 
 import { cn } from "@/lib/utils";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { useCoarsePointer } from "@/hooks/use-mobile";
 import { pluralRu } from "@/lib/format/plural";
 import {
@@ -141,22 +142,18 @@ export function KbFloatingThread({ thread }: KbFloatingThreadProps) {
       type="button"
       onClick={() => void handleResolveToggle()}
       data-tip={thread.resolved ? "Открыть заново" : "Отметить как решённое"}
-      className={cn(
-        "inline-flex items-center gap-1 px-1.5 h-6 rounded-md text-[11px] font-medium",
-        "transition-colors",
-        thread.resolved
-          ? "text-muted-foreground hover:bg-accent"
-          : "text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100/60 dark:hover:bg-emerald-900/40",
-      )}
+      // Ghost-кнопка, как в остальных окнах приложения: нейтральная,
+      // без своего зелёного; статус «Решено» — StatusBadge в шапке.
+      className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[13px] font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       {thread.resolved ? (
         <>
-          <RotateCcw className="size-3" />
+          <RotateCcw className="size-4 text-muted-foreground" />
           Открыть
         </>
       ) : (
         <>
-          <CheckCircle2 className="size-3" />
+          <CheckCircle2 className="size-4 text-muted-foreground" />
           Решить
         </>
       )}
@@ -192,8 +189,14 @@ export function KbFloatingThread({ thread }: KbFloatingThreadProps) {
   if (isTouch) {
     return (
       <KbMobileCommentSheet
-        title={thread.resolved ? "Решено" : "Обсуждение"}
-        headerExtra={resolveButton}
+        title="Обсуждение"
+        // «Решено» — тем же StatusBadge, что в окне на компьютере.
+        headerExtra={
+          <span className="flex items-center gap-2">
+            {thread.resolved && <StatusBadge tone="success">Решено</StatusBadge>}
+            {resolveButton}
+          </span>
+        }
         onClose={() => ext.selectThread?.(undefined)}
       >
         {commentsList}
@@ -206,7 +209,8 @@ export function KbFloatingThread({ thread }: KbFloatingThreadProps) {
     <div
       className={cn(
         "bn-thread",
-        "rounded-xl border border-border bg-card shadow-md",
+        // Как остальные всплывающие окна: радиус 10, bg-popover, shadow-md.
+        "rounded-[10px] border bg-popover text-popover-foreground shadow-md",
         "min-w-[360px] max-w-[440px] overflow-hidden",
       )}
     >
@@ -214,23 +218,13 @@ export function KbFloatingThread({ thread }: KbFloatingThreadProps) {
           курсивом для контекста. */}
       {(canResolve || thread.resolved) && (
         <div
-          className={cn(
-            "flex items-center justify-between px-3 py-1.5 border-b border-border",
-            thread.resolved
-              ? "bg-emerald-50/60 dark:bg-emerald-900/20"
-              : "bg-background/60",
-          )}
+          className="flex items-center justify-between gap-2 border-b px-3 py-1.5"
         >
-          <span
-            className={cn(
-              "text-[11px] font-medium",
-              thread.resolved
-                ? "text-emerald-700 dark:text-emerald-400"
-                : "text-muted-foreground",
-            )}
-          >
-            {thread.resolved ? "Решено" : "Обсуждение"}
-          </span>
+          {thread.resolved ? (
+            <StatusBadge tone="success">Решено</StatusBadge>
+          ) : (
+            <span className="text-xs font-medium text-muted-foreground">Обсуждение</span>
+          )}
           {resolveButton}
         </div>
       )}
@@ -255,7 +249,7 @@ function CommentRow({
   const [editing, setEditing] = useState(false);
   if (comment.deletedAt) {
     return (
-      <div className="px-3 py-2.5 text-xs italic text-muted-foreground">
+      <div className="px-3 py-2.5 text-[13px] text-muted-foreground">
         Комментарий удалён
       </div>
     );
@@ -288,7 +282,7 @@ function CommentRow({
           >
             {user?.username ?? "..."}
           </a>
-          <span className="text-[11px] text-muted-foreground tabular-nums shrink-0">
+          <span className="text-xs text-muted-foreground tabular-nums shrink-0">
             {formatRelative(comment.createdAt)}
             {comment.updatedAt &&
               comment.updatedAt.getTime() !== comment.createdAt.getTime() &&
@@ -475,7 +469,7 @@ function Reactions({
             onClick={() => void handleClick()}
             disabled={!canAdd && !canRemove}
             className={cn(
-              "inline-flex items-center gap-1 h-6 px-1.5 rounded-md border text-[12px] transition-colors",
+              "inline-flex items-center gap-1 h-6 px-1.5 rounded-md border text-xs transition-colors",
               isMine
                 ? "bg-brand/10 border-brand/40 text-brand hover:bg-brand/15"
                 : "bg-muted/50 border-border hover:bg-accent",
@@ -592,7 +586,7 @@ function EditCommentRow({
           >
             {user?.username ?? "..."}
           </a>
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             редактирование
           </span>
         </div>
@@ -624,7 +618,7 @@ function EditCommentRow({
             onClick={() => void handleSave()}
             disabled={!text.trim() || saving}
             className={cn(
-              "inline-flex items-center justify-center size-7 rounded-full transition-colors",
+              "inline-flex items-center justify-center size-7 rounded-md transition-colors",
               text.trim() && !saving
                 ? "bg-brand text-brand-foreground hover:bg-brand-hover"
                 : "bg-muted text-muted-foreground cursor-not-allowed",
@@ -733,7 +727,7 @@ function ReplyInput({
           disabled={!canSubmit}
           onClick={() => void handleSubmit()}
           className={cn(
-            "inline-flex items-center justify-center size-7 rounded-full",
+            "inline-flex items-center justify-center size-7 rounded-md",
             "transition-colors shrink-0",
             canSubmit
               ? "bg-brand text-brand-foreground hover:bg-brand-hover"

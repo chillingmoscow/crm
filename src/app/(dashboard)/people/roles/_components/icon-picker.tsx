@@ -47,25 +47,29 @@ export function IconPicker({
           disabled={disabled}
           aria-label="Выбрать иконку"
           className={cn(
-            "inline-flex items-center justify-center gap-1.5 h-10 rounded-lg border border-input bg-background px-2 transition-colors shrink-0",
+            // Как выбор значка подразделения: поле 40px, радиус 6, значок
+            // в плитке 28px, шеврон 16px.
+            "inline-flex items-center justify-center gap-1.5 h-10 rounded-md border border-input bg-background px-1.5 transition-colors shrink-0",
             "hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed",
             "data-[state=open]:bg-accent",
           )}
         >
-          <CurrentIcon
+          <span
             className={cn(
-              "w-4 h-4",
-              paletteText(color as PaletteColor | null) || "text-foreground",
+              "flex size-7 items-center justify-center rounded-md bg-muted",
+              paletteText(color as PaletteColor | null) || "text-muted-foreground",
             )}
-          />
-          <ChevronDown className="w-3 h-3 text-muted-foreground" />
+          >
+            <CurrentIcon className="size-4" />
+          </span>
+          <ChevronDown className="size-4 text-muted-foreground" />
         </button>
       </PopoverTrigger>
       <PopoverContent
         align="start"
         side="bottom"
         sideOffset={6}
-        className="w-[380px] p-0"
+        className="w-[292px] p-0"
       >
         <KbIconPickerBody
           value={value}
@@ -73,8 +77,9 @@ export function IconPicker({
           onChange={onChange}
           onCommitClose={() => setOpen(false)}
           // Роль всегда имеет fallback-иконку по `code`, поэтому tint
-          // без явно выбранной иконки нужно сохранять.
+          // без явно выбранной иконки нужно сохранять; сброс возвращает её же.
           commitColorWithoutIcon
+          clearLabel="Значок по умолчанию"
         />
       </PopoverContent>
     </Popover>

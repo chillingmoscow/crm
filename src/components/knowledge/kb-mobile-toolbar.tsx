@@ -870,7 +870,7 @@ export function KbMobileToolbar({
             aria-expanded={activeSheet === "ai"}
             onClick={() => setActiveSheet((v) => (v === "ai" ? null : "ai"))}
           >
-            <Sparkles className="size-[18px] text-brand" />
+            <Sparkles className="size-[18px]" />
           </button>
         ) : null}
 

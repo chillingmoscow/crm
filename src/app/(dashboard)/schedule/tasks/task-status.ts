@@ -5,20 +5,24 @@ export type TaskStatus = "Работает" | "Не настроена" | "Че�
 type SetupFields = Pick<
   TaskDefinition,
   "template_id" | "recurrence" | "items" | "review_mode"
->;
+> &
+  Partial<Pick<TaskDefinition, "kind" | "count_config">>;
 
 /**
  * Чего не хватает, чтобы задачу можно было включить, и на какой вкладке это
  * задают. Чек-лист нужен только задаче с приёмкой: управляющему надо, что
  * проверять. Без приёмки сотрудник читает инструкцию и отмечает выполнение.
+ * Взвешиванию вместо чек-листа нужны склад и позиции (та же вкладка).
  */
 export function taskSetupParts(t: SetupFields): { label: string; tab: string }[] {
   return [
-    t.review_mode === "manager" &&
-      !t.items.some((i) => i.kind !== "info") && {
-      label: "пунктов чек-листа",
-      tab: "checklist",
-    },
+    t.kind === "stock_count"
+      ? !t.count_config && { label: "склада и позиций", tab: "checklist" }
+      : t.review_mode === "manager" &&
+        !t.items.some((i) => i.kind !== "info") && {
+          label: "пунктов чек-листа",
+          tab: "checklist",
+        },
     !t.template_id && { label: "шаблона смены", tab: "settings" },
     !t.recurrence && { label: "повтора", tab: "settings" },
   ].filter(Boolean) as { label: string; tab: string }[];

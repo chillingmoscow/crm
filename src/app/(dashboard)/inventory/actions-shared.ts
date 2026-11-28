@@ -1533,6 +1533,22 @@ export async function getResultDocumentForAction(input: {
   requireOpen?: boolean;
 }) {
   await assertDocumentVisible({ supabase: input.supabase, documentId: input.documentId });
+  return loadResultDocumentForAction(input);
+}
+
+/**
+ * Акт для действия над итогами — без проверки видимости пользователю.
+ *
+ * Читает admin-клиентом в пределах `accountId` и применяет те же запреты, что
+ * getResultDocumentForAction. Для серверных путей без сессии (воркер, импорт);
+ * из экшена, вызванного пользователем, — только после assertDocumentVisible.
+ */
+export async function loadResultDocumentForAction(input: {
+  admin: LooseDb;
+  accountId: string;
+  documentId: string;
+  requireOpen?: boolean;
+}) {
   const { data: document } = await input.admin
     .from<InventoryResultDocumentRow>("documents")
     .select(
@@ -1574,6 +1590,8 @@ export async function writeInventoryResultEvent(input: {
   accountId: string;
   /** null — событие из синка по расписанию, автора нет. */
   userId: string | null;
+  /** Автор строки общего журнала, если он не совпадает с `created_by` события (null — «Система»). */
+  auditUserId?: string | null;
   documentId: string;
   documentItemId?: string | null;
   resortId?: string | null;
@@ -1592,10 +1610,14 @@ export async function writeInventoryResultEvent(input: {
     payload,
     created_by: input.userId,
   });
-  await writeInventoryAudit(input, payload, {
-    message: input.message,
-    itemIds: [input.documentItemId ?? null, ...payloadItemIds(payload)],
-  });
+  await writeInventoryAudit(
+    "auditUserId" in input ? { ...input, userId: input.auditUserId ?? null } : input,
+    payload,
+    {
+      message: input.message,
+      itemIds: [input.documentItemId ?? null, ...payloadItemIds(payload)],
+    },
+  );
 }
 
 /** id строк акта, которых касается событие: одиночный itemId и пачки. */

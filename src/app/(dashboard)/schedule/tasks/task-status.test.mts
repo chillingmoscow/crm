@@ -33,3 +33,15 @@ test("пункты-подсказки не считаются чек-листо�
 test("включённая задача работает", () => {
   assert.equal(taskStatus({ ...base, review_mode: "auto", enabled: true }), "Работает");
 });
+
+test("взвешиванию нужны склад и позиции, а не чек-лист", () => {
+  const task = {
+    ...base,
+    review_mode: "auto" as const,
+    kind: "stock_count" as const,
+    count_config: null,
+  };
+  assert.deepEqual(taskMissing(task), ["склада и позиций"]);
+  assert.equal(taskStatus(task), "Не настроена");
+  assert.deepEqual(taskMissing({ ...task, count_config: {} as never }), []);
+});

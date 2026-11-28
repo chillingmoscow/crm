@@ -1,5 +1,5 @@
 "use server";
-import { createClient, getCachedPermissions, getCachedUser } from "@/lib/supabase/server";
+import { createClient, getCachedActiveAccountId, getCachedPermissions, getCachedUser } from "@/lib/supabase/server";
 import { listKbPageTreeRows } from "@/lib/knowledge/pages";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { shiftTemplateLabel } from "@/lib/schedule/types";
@@ -16,6 +16,7 @@ import {
   type TaskOccurrence,
   type TaskMessage,
   type TaskPreview,
+  type StockCommitInfo,
 } from "@/lib/schedule/tasks";
 import { mediaUrl } from "@/lib/storage/media";
 import { getKbAttachmentSignedUrl } from "@/lib/knowledge/attachments";
@@ -41,6 +42,45 @@ const taskDate = z.string().refine((value) => {
 const taskWeek = z.object({ from: taskDate, to: taskDate })
   .refine(({ from, to }) => to >= from && to <= addDays(from, 31));
 
+/** Статус проведения сданных взвешиваний. Ошибка чтения не роняет календарь: статус просто не показывается. */
+async function loadStockCommits(
+  db: ReturnType<typeof asLooseDb>,
+  occurrences: TaskOccurrence[],
+): Promise<Record<string, StockCommitInfo>> {
+  const ids = occurrences
+    .filter((o) => o.snapshot?.kind === "stock_count" && o.status === "completed")
+    .map((o) => o.id);
+  if (!ids.length) return {};
+  const commits = await db
+    .from<{ id: string; occurrence_id: string; status: StockCommitInfo["status"]; last_error: string | null; document_id: string | null }[]>(
+      "stock_count_commits",
+    )
+    .select("id,occurrence_id,status,last_error,document_id")
+    .in("occurrence_id", ids);
+  if (commits.error) return {};
+  const docIds = (commits.data ?? []).flatMap((c) => (c.document_id ? [c.document_id] : []));
+  const numbers = new Map<string, string>();
+  if (docIds.length) {
+    // Исполнителю документы могут быть не видны — тогда покажем «Акт проведён» без номера.
+    const docs = await db
+      .from<{ id: string; document_number: string | null }[]>("documents")
+      .select("id,document_number")
+      .in("id", docIds);
+    for (const d of docs.data ?? []) if (d.document_number) numbers.set(d.id, d.document_number);
+  }
+  return Object.fromEntries(
+    (commits.data ?? []).map((c) => [
+      c.occurrence_id,
+      {
+        id: c.id,
+        status: c.status,
+        lastError: c.last_error,
+        documentNumber: c.document_id ? (numbers.get(c.document_id) ?? null) : null,
+      },
+    ]),
+  );
+}
+
 async function loadCalendarTasksImpl(range?: { from: string; to: string }): Promise<CalendarTaskData> {
   const period = range ? taskWeek.parse(range) : null;
   const [{ db, user, venueId }, permissions] = await Promise.all([context(), getCachedPermissions()]);
@@ -65,9 +105,11 @@ async function loadCalendarTasksImpl(range?: { from: string; to: string }): Prom
   ]);
   if (occurrences.error) throw new Error("Не удалось загрузить задачи");
   if (plans?.error) throw new Error("Не удалось загрузить план задач");
+  const rows = occurrences.data ?? [];
   return {
-    occurrences: occurrences.data ?? [],
+    occurrences: rows,
     plans: (plans?.data ?? []) as TaskPreview[],
+    stockCommits: await loadStockCommits(db, rows),
     permissions, userId: user.id, today, timezone,
   };
 }
@@ -224,6 +266,59 @@ export async function deleteTask(input: { id: string; version: number }) {
       error: actionErrorMessage(error, "Не удалось удалить задачу"),
     };
   }
+}
+export type CountOptions = {
+  stores: { id: string; title: string }[];
+  chats: { chatId: string; title: string }[];
+  products: { id: string; name: string }[];
+};
+
+/** Склады заведения, чаты Telegram и названия уже выбранных позиций для настройки взвешивания. */
+async function loadCountOptionsImpl(productIds: string[]): Promise<CountOptions> {
+  const ids = z.array(z.string().uuid()).max(20).parse(productIds);
+  const { venueId } = await context();
+  const [permissions, accountId] = await Promise.all([getCachedPermissions(), getCachedActiveAccountId()]);
+  if (!permissions.includes("inventory.finalize_results") || !accountId)
+    throw new Error("Нет доступа к настройке взвешиваний");
+  // Склады, чаты и каталог читаются сервисным ключом после проверки права:
+  // у настраивающего взвешивание может не быть прав на просмотр каталога.
+  const admin = asLooseDb(createAdminClient());
+  const [stores, chats, products] = await Promise.all([
+    admin.from<{ id: string; title: string }[]>("stores").select("id,title")
+      .eq("account_id", accountId).eq("local_venue_id", venueId).is("archived_at", null).order("title"),
+    admin.from<{ chat_id: string; title: string }[]>("telegram_chats").select("chat_id,title")
+      .eq("account_id", accountId).is("archived_at", null).order("title"),
+    ids.length
+      ? admin.from<{ id: string; name: string }[]>("ingredients").select("id,name")
+        .eq("account_id", accountId).in("id", ids)
+      : Promise.resolve({ data: [] as { id: string; name: string }[], error: null }),
+  ]);
+  for (const r of [stores, chats, products])
+    if (r.error) throw new Error("Не удалось загрузить склады и позиции");
+  return {
+    stores: stores.data ?? [],
+    chats: (chats.data ?? []).map((c) => ({ chatId: c.chat_id, title: c.title || c.chat_id })),
+    products: products.data ?? [],
+  };
+}
+async function searchCountProductsImpl(query: string): Promise<{ id: string; name: string }[]> {
+  const q = z.string().trim().min(1).max(100).parse(query).replace(/[%_\\,()]/g, " ").trim();
+  const [permissions, accountId] = await Promise.all([getCachedPermissions(), getCachedActiveAccountId()]);
+  if (!permissions.includes("inventory.finalize_results") || !accountId)
+    throw new Error("Нет доступа к настройке взвешиваний");
+  if (!q) return [];
+  const r = await asLooseDb(createAdminClient())
+    .from<{ id: string; name: string }[]>("ingredients").select("id,name")
+    .eq("account_id", accountId).eq("kind", "ingredient").is("archived_at", null)
+    .ilike("name", `%${q}%`).order("name").limit(20);
+  if (r.error) throw new Error("Не удалось найти позиции");
+  return r.data ?? [];
+}
+export async function loadCountOptions(productIds: string[]) {
+  return actionResult(() => loadCountOptionsImpl(productIds), "Не удалось загрузить склады и позиции");
+}
+export async function searchCountProducts(query: string) {
+  return actionResult(() => searchCountProductsImpl(query), "Не удалось найти позиции");
 }
 export async function saveTask(input: unknown) {
   try {

@@ -82,6 +82,13 @@ export type TelegramBot = {
     photos: { data: ArrayBuffer; name: string }[],
     caption: string,
   ) => Promise<TelegramApiResult<{ message_id?: number } | { message_id?: number }[]>>;
+  /** Uploads a file as a document with an HTML caption. */
+  sendDocument: (
+    chatId: string,
+    file: Blob,
+    filename: string,
+    caption: string,
+  ) => Promise<TelegramApiResult<unknown>>;
 };
 
 /** Loads the organization's bot; null when Telegram is not configured for the account. */
@@ -174,6 +181,14 @@ export async function loadTelegramBot(
         caption,
         parse_mode: "HTML",
       }),
+    sendDocument: async (chatId, file, filename, caption) => {
+      const form = new FormData();
+      form.set("chat_id", chatId);
+      form.set("document", file, filename);
+      form.set("caption", caption);
+      form.set("parse_mode", "HTML");
+      return upload("sendDocument", form);
+    },
     sendPhotoFiles: async (chatId, photos, caption) => {
       if (!photos.length || photos.length > 10) throw new Error("Можно отправить от 1 до 10 картинок");
       const form = new FormData();

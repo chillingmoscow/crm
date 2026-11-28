@@ -536,6 +536,34 @@ const SPECS: Record<string, AuditEventSpec> = {
       );
     },
   },
+  // Разовая загрузка проведённых актов склада из Quick Resto
+  // (/dev/import-store-acts): одна строка на запуск.
+  "inventory.store_acts.imported": {
+    icon: FilePlus2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: (e) => (
+      <>
+        загрузил(а) проведённые акты склада из Quick Resto
+        {typeof e.details.store_title === "string" ? <>: {e.details.store_title}</> : null}
+      </>
+    ),
+    buildDetails: (e) => {
+      const documents = Array.isArray(e.details.documents)
+        ? e.details.documents
+            .map((row) => (row && typeof row === "object" ? (row as { number?: unknown }).number : null))
+            .filter((value): value is string => typeof value === "string")
+        : [];
+      const failed = Number(e.details.failed ?? 0);
+      return (
+        <div className="text-xs text-muted-foreground">
+          <p>
+            С {formatDate(e.details.from)} · загружено: {Number(e.details.imported ?? 0)}
+            {failed > 0 ? <> · не загружено: {failed}</> : null}
+          </p>
+          {documents.length > 0 ? <p>{documents.join(", ")}</p> : null}
+        </div>
+      );
+    },
+  },
   "stock.writeoffs.archive_imported": {
     icon: FilePlus2, iconClass: "text-brand bg-brand/10",
     buildHeadline: () => <>перенёс(ла) архив списаний</>,
@@ -1638,6 +1666,15 @@ const INVENTORY_EVENT_SPECS: Array<[string, string, LucideIcon, string]> = [
   ["supplier_removed", "удалил(а) поставщика ингредиента", Trash2, "text-destructive bg-destructive/10"],
 ];
 
+/** Подпись автоматической фиксации итогов: взвешивание или загрузка проведённых актов. */
+export function automaticFinalizeTail(details: Record<string, unknown>): string | null {
+  const who =
+    typeof details.actorName === "string" && details.actorName.trim() ? ` (${details.actorName.trim()})` : "";
+  if (details.source === "weighing") return `автоматически по взвешиванию${who}`;
+  if (details.source === "import") return `при загрузке проведённых актов${who}`;
+  return null;
+}
+
 const INVENTORY_SPECS: Record<string, AuditEventSpec> = Object.fromEntries(
   INVENTORY_EVENT_SPECS.map(([type, phrase, icon, iconClass]) => [
     `inventory.${type}`,
@@ -1654,6 +1691,22 @@ const INVENTORY_SPECS: Record<string, AuditEventSpec> = Object.fromEntries(
     } satisfies AuditEventSpec,
   ]),
 );
+{
+  const base = INVENTORY_SPECS["inventory.results_finalized"];
+  INVENTORY_SPECS["inventory.results_finalized"] = {
+    ...base,
+    buildHeadline: (e) => {
+      const tail = automaticFinalizeTail(e.details);
+      if (!tail) return base.buildHeadline(e);
+      return (
+        <>
+          зафиксировал(а) итоги акта
+          <InventoryDocumentRef event={e} /> {tail}
+        </>
+      );
+    },
+  };
+}
 
 /**
  * Подробности события акта: позиции, кого назначили, причина, комментарий.

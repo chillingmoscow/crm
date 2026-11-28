@@ -703,6 +703,47 @@ export async function createInventoryDocumentBackOffice(input: {
   });
 }
 
+/** PDF «Итоги» проведённого акта инвентаризации из back-office. */
+export async function downloadInventoryResultsPdfBackOffice(input: {
+  layerName: string;
+  baseUrl?: string | null;
+  authorization: string;
+  documentId: number;
+}): Promise<Blob> {
+  const origin = buildQuickRestoBackOfficeOrigin(input);
+  const params = encodeURIComponent(
+    JSON.stringify({
+      actionName: "inventoryResults",
+      data: { start: 0, count: 150, mode: "previous30Days", timeZone: 0 },
+      ids: [input.documentId],
+    }),
+  );
+  const url = `${origin}/platform/report/warehouse.inventory.document.v2/?${params}`;
+  const response = await fetchQuickRestoData(url, {
+    method: "GET",
+    headers: {
+      Accept: "application/pdf, */*",
+      Authorization: input.authorization,
+    },
+    cache: "no-store",
+    redirect: "manual",
+  });
+  if (
+    response.status === 401 ||
+    response.status === 403 ||
+    (response.status >= 300 && response.status < 400)
+  ) {
+    throwQuickRestoBackOfficeAuthError(response.status);
+  }
+  if (!response.ok) {
+    throw new Error(quickRestoErrorMessage(response.status, await response.text()));
+  }
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  const magic = String.fromCharCode(...bytes.slice(0, 4));
+  if (magic !== "%PDF") throw new Error("Quick Resto не отдал PDF акта");
+  return new Blob([bytes], { type: "application/pdf" });
+}
+
 /**
  * Следующий номер акта («СВ397») — то, что интерфейс Quick Resto подставляет в
  * карточку нового акта. Только чтение: номер не резервируется, повторный вызов

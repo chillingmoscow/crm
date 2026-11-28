@@ -143,6 +143,18 @@ import { useCoarsePointer } from "@/hooks/use-mobile";
 import { useHydrated } from "@/hooks/use-hydrated";
 import { LiveDot, NowLine, ShiftNowMark, TodayClock, shiftElapsed, shiftRunning, useMinuteNow } from "./shift-live";
 import { ShiftHoverCard } from "./shift-hover-card";
+const WeighingReport = dynamic(
+  () => import("../tasks/weighing-report").then((module) => module.WeighingReport),
+  {
+    loading: () => (
+      <div
+        role="status"
+        aria-label="Загрузка взвешивания"
+        className="mx-auto h-72 w-full max-w-[720px] animate-pulse rounded-xl bg-muted motion-reduce:animate-none"
+      />
+    ),
+  },
+);
 const CalendarTaskReport = dynamic(
   () => import("../tasks/tasks-client").then((module) => module.TaskReport),
   {
@@ -1967,20 +1979,37 @@ export function ScheduleClient({
             <TaskHeaderTarget.Provider
               value={tab === "calendar" ? taskHeaderTarget : null}
             >
-              <CalendarTaskReport
-                key={selectedTask.id}
-                occurrence={selectedTask}
-                data={calendarTasks}
-                onClose={() => setSelectedTask(null)}
-                onSaved={async () => {
-                  const next = await refreshCalendarTasks();
-                  setSelectedTask(
-                    next.occurrences.find(
-                      (task) => task.id === selectedTask.id,
-                    ) ?? null,
-                  );
-                }}
-              />
+              {selectedTask.snapshot.kind === "stock_count" ? (
+                <WeighingReport
+                  key={selectedTask.id}
+                  occurrence={selectedTask}
+                  data={calendarTasks}
+                  onClose={() => setSelectedTask(null)}
+                  onSaved={async () => {
+                    const next = await refreshCalendarTasks();
+                    setSelectedTask(
+                      next.occurrences.find(
+                        (task) => task.id === selectedTask.id,
+                      ) ?? null,
+                    );
+                  }}
+                />
+              ) : (
+                <CalendarTaskReport
+                  key={selectedTask.id}
+                  occurrence={selectedTask}
+                  data={calendarTasks}
+                  onClose={() => setSelectedTask(null)}
+                  onSaved={async () => {
+                    const next = await refreshCalendarTasks();
+                    setSelectedTask(
+                      next.occurrences.find(
+                        (task) => task.id === selectedTask.id,
+                      ) ?? null,
+                    );
+                  }}
+                />
+              )}
             </TaskHeaderTarget.Provider>
           ) : (
             <>

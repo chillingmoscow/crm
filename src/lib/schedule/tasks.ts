@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { complete } from "./utils";
+import { complete } from "./utils.ts";
+import { countConfigSchema } from "../stock-count/tobacco-weighing.ts";
 import type { Answer, ChecklistItem } from "./types";
 
 const calendarDate = z
@@ -32,6 +33,8 @@ export const taskDefinitionSchema = z
     template_id: z.string().uuid().nullable().default(null),
     review_mode: z.enum(["auto", "manager"]),
     items: z.array(taskItemSchema).max(150),
+    kind: z.enum(["checklist", "stock_count"]).default("checklist"),
+    count_config: countConfigSchema.nullable().default(null),
     recurrence: z
       .object({
       unit: z.enum(["week", "month"]),
@@ -50,7 +53,13 @@ export const taskDefinitionSchema = z
       .default([]),
   })
   .superRefine((s, ctx) => {
-    if (s.enabled && (!s.template_id || !s.recurrence || !s.items.length))
+    if (s.kind === "stock_count") {
+      if (s.enabled && (!s.template_id || !s.recurrence || !s.count_config))
+        ctx.addIssue({
+          code: "custom",
+          message: "Для включения задачи укажите склад и позиции взвешивания",
+        });
+    } else if (s.enabled && (!s.template_id || !s.recurrence || !s.items.length))
       ctx.addIssue({
         code: "custom",
         message: "Для включения задачи укажите смену, повтор и чек-лист",
@@ -139,9 +148,16 @@ export type TaskData = {
   today: string;
   timezone: string;
 };
+/** Проведение сданного взвешивания: статус очереди и номер акта, если он уже есть. */
+export type StockCommitInfo = {
+  id: string;
+  status: "pending" | "processing" | "done" | "failed";
+  lastError: string | null;
+  documentNumber: string | null;
+};
 export type CalendarTaskData = Pick<
   TaskData, "occurrences" | "plans" | "permissions" | "userId" | "today" | "timezone"
->;
+> & { stockCommits?: Record<string, StockCommitInfo> };
 export function missingItems(
   items: ChecklistItem[],
   answers: Record<string, Answer>,

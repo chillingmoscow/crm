@@ -212,6 +212,13 @@ const REGISTRY: Record<string, NotificationTypeSpec> = {
     verb: null,
   },
 
+  // Взвешивание табака: акт не удалось провести после всех повторов.
+  "inventory.weighing_failed": {
+    category: "inventory",
+    icon: AlertTriangle,
+    verb: null,
+  },
+
   // Generic / system
   invite: {
     category: "staff",
@@ -268,6 +275,13 @@ const REGISTRY: Record<string, NotificationTypeSpec> = {
   "schedule.swap_cancelled": {
     category: "schedule",
     icon: RotateCcw,
+    verb: null,
+  },
+
+  // Взвешивание табака не проведено, документа в Sheerly ещё нет.
+  "schedule.weighing_failed": {
+    category: "schedule",
+    icon: AlertTriangle,
     verb: null,
   },
 

@@ -83,7 +83,7 @@ type Props = {
   currentUserId: string;
   /** Право people.edit_staff у текущего пользователя. */
   canEditStaff: boolean;
-  /** people.invite_staff: «Пригласить» и «Разовый». */
+  /** people.invite_staff: «Пригласить» и «Подменный». */
   canInviteStaff?: boolean;
   /** payroll.view: строка разового открывает его расчёт в «Зарплате». */
   canViewPayroll?: boolean;
@@ -96,7 +96,7 @@ type Props = {
   casual: { employees: CasualStaffRow[]; roles: { id: string; name: string }[] } | null;
   /** Пользователи с открытым сегодня официальным трудоустройством; пусто без права просмотра зарплаты. */
   officialUserIds: string[];
-  /** Opened from the schedule: «Добавить → Разовый» is shown right away. */
+  /** Opened from the schedule: «Добавить → Подменный» is shown right away. */
   openAddCasual?: boolean;
   /** Выбор «Обзора» из cookie — сервер рисует его сразу в нужном состоянии. */
   initialOverviewOpen?: boolean;
@@ -367,7 +367,7 @@ export function StaffClient({
     setInviteOpen(true);
   };
   // `?add=casual` (график, палитра ⌘K) открывает панель на вкладке
-  // «Разовый» — и когда страница уже открыта — и убирается из адреса,
+  // «Подменный» — и когда страница уже открыта — и убирается из адреса,
   // чтобы обновление страницы не открывало панель снова.
   useEffect(() => {
     if (!openAddCasual) return;
@@ -801,7 +801,7 @@ export function StaffClient({
                 className="inline-flex shrink-0"
                 data-tip="Выходит на смены по графику без входа в Sheerly. Отмечается в кассе своим PIN."
               >
-                <StatusBadge icon={<CalendarClock />}>Разовый</StatusBadge>
+                <StatusBadge icon={<CalendarClock />}>Подменный</StatusBadge>
               </span>
             )}
           </div>
@@ -852,7 +852,7 @@ export function StaffClient({
         return c.pin ? (
           <span className="font-mono text-sm tabular-nums">{c.pin}</span>
         ) : (
-          <span className="text-sm text-muted-foreground" data-tip="Кода кассы нет: его выдаст «Добавить → Разовый» с тем же именем или перевод в штат">
+          <span className="text-sm text-muted-foreground" data-tip="Кода кассы нет: его выдаст «Добавить → Подменный» с тем же именем или перевод в штат">
             —
           </span>
         );

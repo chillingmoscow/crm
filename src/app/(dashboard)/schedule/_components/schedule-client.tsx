@@ -746,7 +746,7 @@ export function ScheduleClient({
       avatar_url: null,
       show_in_schedule: true,
       role_id: e.role_id,
-      role_name: `${e.role_name} · разовый`,
+      role_name: `${e.role_name} · подменный`,
       department_id:
         data.roles.find((r) => r.id === e.role_id)?.department_id ?? null,
     })),

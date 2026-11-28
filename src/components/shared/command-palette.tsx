@@ -248,7 +248,7 @@ function Palette({
     if (can("guest"))
       list.push({ id: "act:guest", title: "Добавить гостя", hint: "Гости", icon: UserPlus, keywords: "гость карточка", run: () => go("/crm/guests?create=1") });
     if (can("casual"))
-      list.push({ id: "act:casual", title: "Добавить сотрудника на подработку", hint: "Сотрудники", icon: UserPlus, keywords: "сотрудник подработка", run: () => go("/people/staff?add=casual") });
+      list.push({ id: "act:casual", title: "Добавить подменного сотрудника", hint: "Сотрудники", icon: UserPlus, keywords: "сотрудник подменный разовый подработка", run: () => go("/people/staff?add=casual") });
     if (can("counterparty"))
       list.push({ id: "act:counterparty", title: "Новый контрагент", hint: "Контрагенты", icon: Users, keywords: "поставщик", run: () => go("/finance/counterparties?create=1") });
     if (can("account"))

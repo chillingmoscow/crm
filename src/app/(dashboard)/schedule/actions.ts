@@ -331,7 +331,7 @@ async function loadScheduleImpl(
     if (row.casual_id && !teamCasual.has(row.casual_id))
       teamCasual.set(row.casual_id, {
         id: row.casual_id,
-        name: row.casual_name ?? "Разовый сотрудник",
+        name: row.casual_name ?? "Подменный сотрудник",
         role_id: row.role_id ?? "",
         role_name: row.casual_role_name ?? "",
         model_id: null,

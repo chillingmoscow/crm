@@ -1077,7 +1077,7 @@ function CollectionScopedPropertyRow({
       </span>
       <div
         className="flex items-center gap-1.5 -mx-1.5 rounded-md px-1.5 py-0.5 transition-colors
-                   hover:bg-foreground/[0.06] dark:hover:bg-foreground/10"
+                   hover:bg-accent"
       >
         {property.icon ? (
           <KbPageIcon
@@ -1177,15 +1177,17 @@ function PropertyRow({
         <button
           type="button"
           aria-label="Перетащить свойство"
-          className="absolute right-full top-2 mr-1 size-5
-                     flex items-center justify-center text-muted-foreground/40
+          // Как ручка блока в тексте (DS «Ручка блока»): 20px, радиус 4,
+          // значок 16 серый, при наведении — accent и foreground.
+          className="absolute right-full top-2 mr-1 size-5 rounded-sm
+                     flex items-center justify-center text-muted-foreground
                      cursor-grab active:cursor-grabbing
                      opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100
-                     hover:text-foreground transition-opacity"
+                     hover:bg-accent hover:text-foreground transition-[opacity,background-color,color]"
           {...attributes}
           {...listeners}
         >
-          <GripVertical className="size-3.5" />
+          <GripVertical className="size-4" />
         </button>
       )}
       {/* Label area: icon + name. Hover-bg ТОЛЬКО здесь (Notion-style —
@@ -1324,7 +1326,7 @@ function PropertyLabelTrigger({
   const row = (
     <div
       className="flex items-center gap-2 -ml-1.5 rounded-md px-1.5 py-1
-                 transition-colors hover:bg-foreground/[0.06] dark:hover:bg-foreground/10"
+                 transition-colors hover:bg-accent"
     >
       <PropertyIconButton
         property={property}
@@ -1376,8 +1378,8 @@ function PropertyRowDragPreview({ property }: { property: KbProperty }) {
         "px-2",
       )}
     >
-      <span className="size-5 -ml-1 shrink-0 flex items-center justify-center text-muted-foreground/40">
-        <GripVertical className="size-3.5" />
+      <span className="size-5 -ml-1 shrink-0 flex items-center justify-center text-muted-foreground">
+        <GripVertical className="size-4" />
       </span>
       <div className="flex items-center gap-1.5 px-1 -mx-1">
         {property.icon ? (

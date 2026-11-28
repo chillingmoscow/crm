@@ -134,10 +134,33 @@ export function PropertyEditorPopover({
   // Закрытие поповера (клик мимо / Esc) — сбрасываем несохранённый
   // draft описания в проп, чтобы не требовать Enter.
   const handleOpenChange = (next: boolean) => {
-    if (!next && descDraft !== (property.description ?? "")) {
+    if (!next && !descCancelRef.current && descDraft !== (property.description ?? "")) {
       onChangeDescription(descDraft);
     }
+    descCancelRef.current = false;
+    if (next) nameCancelRef.current = false;
     onOpenChange?.(next);
+  };
+
+  // Esc — отмена правки в поле, а не сохранение. Radix ловит Esc раньше
+  // поля и закрывает окно: без этого blur названия переименовывал свойство,
+  // а описание (оно пишется на ходу) оставалось с введённым текстом.
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
+  const nameCancelRef = useRef(false);
+  const descOriginRef = useRef<string | null>(null);
+  const descCancelRef = useRef(false);
+  const handleEscape = () => {
+    const el = document.activeElement;
+    if (el && el === nameInputRef.current) {
+      nameCancelRef.current = true;
+      setNameDraft(property.name);
+    }
+    if (el && el === descRef.current && descOriginRef.current !== null) {
+      descCancelRef.current = true;
+      const origin = descOriginRef.current;
+      setDescDraft(origin);
+      if (origin !== (property.description ?? "")) onChangeDescription(origin);
+    }
   };
 
   // ── Options DnD ─────────────────────────────────────────────────────
@@ -290,7 +313,9 @@ export function PropertyEditorPopover({
       <PopoverContent
         align="start"
         sideOffset={6}
-        className="w-[264px] overflow-hidden p-1"
+        onEscapeKeyDown={handleEscape}
+        // Длинный список вариантов не должен уводить низ окна за экран.
+        className="w-64 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto overscroll-contain p-1"
       >
         {/* ── Header: icon · name · description ──────────────────────── */}
         <div className="flex items-center gap-2 p-1.5 pb-2">
@@ -301,9 +326,15 @@ export function PropertyEditorPopover({
           />
           <div className="relative min-w-0 flex-1">
             <Input
+              ref={nameInputRef}
               value={nameDraft}
               onChange={(e) => setNameDraft(e.target.value)}
               onBlur={() => {
+                if (nameCancelRef.current) {
+                  nameCancelRef.current = false;
+                  setNameDraft(property.name);
+                  return;
+                }
                 const t = nameDraft.trim();
                 if (t && t !== property.name) onRename(t);
               }}
@@ -346,6 +377,9 @@ export function PropertyEditorPopover({
               autoFocus
               rows={1}
               value={descDraft}
+              onFocus={() => {
+                descOriginRef.current = descDraft;
+              }}
               onChange={(e) => {
                 setDescDraft(e.target.value);
                 onChangeDescription(e.target.value);
@@ -356,11 +390,7 @@ export function PropertyEditorPopover({
                   e.preventDefault();
                   setDescOpen(false);
                 }
-                if (e.key === "Escape") {
-                  setDescDraft(property.description ?? "");
-                  onChangeDescription(property.description ?? "");
-                  setDescOpen(false);
-                }
+                // Esc отменяет правку в handleEscape (окно закрывается).
               }}
               placeholder="Добавить описание…"
               aria-label="Описание свойства"
@@ -751,7 +781,7 @@ function SliderMaxRow({
 }) {
   return (
     <div className={PROPERTY_EDITOR_STATIC_ROW}>
-      <span className="text-muted-foreground">Максимальное значение</span>
+      <span className="text-muted-foreground">Максимум</span>
       <Input
         type="number"
         min={1}
@@ -823,7 +853,7 @@ function ColorRow({
       <PopoverContent
         align="end"
         sideOffset={6}
-        className="w-[200px] p-1"
+        className="w-56 p-1"
       >
         {PALETTE_GRID.map((c) => {
           const isCurrent = currentName === c.name;
@@ -832,8 +862,11 @@ function ColorRow({
               key={c.name}
               type="button"
               onClick={() => onChange(c.name === "default" ? null : c.name)}
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5
-                         text-sm transition-colors hover:bg-accent"
+              className={cn(
+                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
+                "hover:bg-accent focus-visible:bg-accent focus-visible:outline-none",
+                isCurrent && "bg-accent",
+              )}
             >
               <ColorDot color={c.name} size="md" />
               <span className="flex-1 text-left">{c.label}</span>
@@ -880,7 +913,7 @@ function ViewCards({
             )}
             aria-pressed={isCurrent}
           >
-            <span className="flex h-6 items-center justify-center text-foreground/80">
+            <span className="flex h-6 items-center justify-center text-foreground">
               {opt.glyph}
             </span>
             <span
@@ -1098,7 +1131,7 @@ function SliderGlyph() {
 
 function CheckboxGlyph() {
   return (
-    <span className="inline-flex size-[18px] items-center justify-center rounded-[5px] bg-brand text-white">
+    <span className="inline-flex size-4 items-center justify-center rounded bg-brand text-white">
       <Check className="size-3" strokeWidth={3} />
     </span>
   );
@@ -1106,8 +1139,8 @@ function CheckboxGlyph() {
 
 function SwitchGlyph() {
   return (
-    <span className="relative block h-[18px] w-7 rounded-full bg-brand">
-      <span className="absolute right-0.5 top-1/2 size-3.5 -translate-y-1/2 rounded-full bg-white shadow-sm" />
+    <span className="relative block h-4 w-7 rounded-full bg-brand">
+      <span className="absolute right-0.5 top-1/2 size-3 -translate-y-1/2 rounded-full bg-white shadow-sm" />
     </span>
   );
 }
@@ -1145,7 +1178,7 @@ function OptionRow({
       <button
         type="button"
         aria-label="Перетащить вариант"
-        className="size-5 inline-flex items-center justify-center rounded-sm text-muted-foreground/60
+        className="size-5 inline-flex items-center justify-center rounded-sm text-muted-foreground hover:bg-background
                    cursor-grab active:cursor-grabbing hover:text-foreground"
         {...attributes}
         {...listeners}

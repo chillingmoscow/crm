@@ -55,8 +55,26 @@ export function OptionMenuPopover({
     if (descOpen) resize();
   }, [descOpen, descDraft]);
 
+  // Esc — отмена: Radix закрывает окно раньше, чем поле получает Esc, и
+  // закрытие сохраняло введённое название. Описание пишется на ходу —
+  // при отмене возвращаем то, что было при открытии.
+  const escapedRef = useRef(false);
+  // Поле названия теряет фокус уже после закрытия — blur не должен
+  // сохранить отменённое название.
+  const skipBlurRef = useRef(false);
+  const openDescRef = useRef(description ?? "");
   const flush = (next: boolean) => {
-    if (!next) {
+    if (next) {
+      escapedRef.current = false;
+      skipBlurRef.current = false;
+      openDescRef.current = description ?? "";
+    } else if (escapedRef.current) {
+      escapedRef.current = false;
+      skipBlurRef.current = true;
+      setName(option);
+      setDescDraft(openDescRef.current);
+      if ((description ?? "") !== openDescRef.current) onSetDescription(openDescRef.current);
+    } else {
       if (descDraft !== (description ?? "")) onSetDescription(descDraft);
       const t = name.trim();
       if (t && t !== option) onRename(t);
@@ -85,7 +103,12 @@ export function OptionMenuPopover({
         align="end"
         sideOffset={6}
         onClick={(e) => e.stopPropagation()}
-        className="w-[244px] overflow-hidden p-1"
+        onEscapeKeyDown={() => {
+          escapedRef.current = true;
+        }}
+        // Десять цветов и «Удалить» внизу: на низком экране окно
+        // прокручивается, а не обрезает последний пункт.
+        className="w-60 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto overscroll-contain p-1"
       >
         <div className="flex items-center gap-2 p-1.5 pb-2">
           <div className="relative min-w-0 flex-1">
@@ -94,6 +117,10 @@ export function OptionMenuPopover({
               value={name}
               onChange={(e) => setName(e.target.value)}
               onBlur={() => {
+                if (skipBlurRef.current) {
+                  skipBlurRef.current = false;
+                  return;
+                }
                 const t = name.trim();
                 if (t && t !== option) onRename(t);
                 else setName(option);
@@ -149,11 +176,7 @@ export function OptionMenuPopover({
                   e.preventDefault();
                   setOpen(false);
                 }
-                if (e.key === "Escape") {
-                  setDescDraft(description ?? "");
-                  onSetDescription(description ?? "");
-                  setDescOpen(false);
-                }
+                // Esc отменяет правку в onEscapeKeyDown (окно закрывается).
               }}
               placeholder="Добавить описание…"
               aria-label="Описание варианта"
@@ -178,7 +201,8 @@ export function OptionMenuPopover({
                 type="button"
                 onClick={() => onSetColor(c.name)}
                 className={cn(
-                  "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent",
+                  "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
+                  "hover:bg-accent focus-visible:bg-accent focus-visible:outline-none",
                   isCurrent && "bg-accent",
                 )}
               >
@@ -198,7 +222,8 @@ export function OptionMenuPopover({
             onRemove();
           }}
           className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm
-                     text-destructive transition-colors hover:bg-destructive/10"
+                     text-destructive transition-colors hover:bg-accent
+                     focus-visible:bg-accent focus-visible:outline-none"
         >
           <KB_PROPERTY_UI_ICONS.delete className="size-4" />
           Удалить

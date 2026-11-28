@@ -185,7 +185,7 @@ export function OptionValuePicker({
                     removeChip(v);
                   }}
                   className="inline-flex size-4 items-center justify-center
-                             rounded text-muted-foreground/50
+                             rounded text-muted-foreground
                              transition-colors hover:text-foreground"
                 >
                   <X className="size-3" />
@@ -217,11 +217,12 @@ export function OptionValuePicker({
             }}
             placeholder="Найти или создать вариант"
             aria-label="Найти или создать вариант"
-            className="w-full bg-transparent text-sm outline-none
+            // 16px на телефоне — иначе iOS увеличивает страницу при фокусе.
+            className="w-full bg-transparent text-base outline-none md:text-sm
                        placeholder:text-muted-foreground"
           />
         </div>
-        <div className="max-h-[260px] overflow-y-auto p-1">
+        <div className="flex max-h-[260px] flex-col gap-0.5 overflow-y-auto p-1">
           {filtered.map((o) => {
             const checked = selectedSet.has(o);
             const desc = optionDescriptions?.[o]?.trim();
@@ -230,7 +231,7 @@ export function OptionValuePicker({
               <div
                 key={o}
                 className={cn(
-                  "group/opt flex items-center gap-1 rounded-md pr-1 transition-colors hover:bg-accent",
+                  "group/opt flex items-center gap-1 rounded-md pr-1 transition-colors hover:bg-accent focus-within:bg-accent",
                   // Выбранный — подложка и галочка справа (DS «Выпадающий
                   // список вариантов»).
                   checked && "bg-accent",
@@ -240,7 +241,7 @@ export function OptionValuePicker({
                   type="button"
                   onClick={() => pick(o)}
                   className="flex min-w-0 flex-1 items-center gap-2 rounded-md
-                             px-2 py-1.5 text-left"
+                             px-3 py-2 text-left focus-visible:outline-none"
                 >
                   {desc ? (
                     <Tooltip>
@@ -289,8 +290,9 @@ export function OptionValuePicker({
             <button
               type="button"
               onClick={create}
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5
-                         text-left text-sm transition-colors hover:bg-accent"
+              className="flex w-full items-center gap-2 rounded-md px-3 py-2
+                         text-left text-sm transition-colors hover:bg-accent
+                         focus-visible:bg-accent focus-visible:outline-none"
             >
               <Plus className="size-3.5 shrink-0 text-muted-foreground" />
               <span className="text-muted-foreground">Создать</span>
@@ -298,7 +300,7 @@ export function OptionValuePicker({
             </button>
           )}
           {filtered.length === 0 && !canCreate && (
-            <div className="px-2 py-2 text-[13px] text-muted-foreground">
+            <div className="px-3 py-2 text-[13px] text-muted-foreground">
               Ничего не найдено
             </div>
           )}

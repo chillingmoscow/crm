@@ -2,15 +2,23 @@ import type { TaskDefinition } from "@/lib/schedule/tasks";
 
 export type TaskStatus = "Работает" | "Не настроена" | "Черновик";
 
-/** Чего не хватает, чтобы задачу можно было включить. */
-export function taskMissing(
-  t: Pick<TaskDefinition, "template_id" | "recurrence" | "items">,
-): string[] {
+type SetupFields = Pick<TaskDefinition, "template_id" | "recurrence" | "items">;
+
+/** Чего не хватает, чтобы задачу можно было включить, и на какой вкладке это задают. */
+export function taskSetupParts(t: SetupFields): { label: string; tab: string }[] {
   return [
-    !t.template_id && "шаблона смены",
-    !t.recurrence && "повтора",
-    !t.items.some((i) => i.kind !== "info") && "пунктов чек-листа",
-  ].filter(Boolean) as string[];
+    !t.items.some((i) => i.kind !== "info") && {
+      label: "пунктов чек-листа",
+      tab: "checklist",
+    },
+    !t.template_id && { label: "шаблона смены", tab: "settings" },
+    !t.recurrence && { label: "повтора", tab: "settings" },
+  ].filter(Boolean) as { label: string; tab: string }[];
+}
+
+/** Чего не хватает, чтобы задачу можно было включить. */
+export function taskMissing(t: SetupFields): string[] {
+  return taskSetupParts(t).map((part) => part.label);
 }
 
 /** Статус задачи — один для списка и карточки. */

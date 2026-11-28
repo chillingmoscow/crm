@@ -183,6 +183,10 @@ export function KbRequiredReadingBanner({
   const showReaders = (canSeeReaders || showStats) && Boolean(pageSlug);
   const showConfirm = plate.kind === "unread";
   const showSecondRow = showStats || showReaders || showConfirm;
+  const showGateHint = plate.kind === "unread" && !plate.canConfirm;
+  // Левая часть второй строки — только когда в ней есть что показать:
+  // пустой блок на телефоне занимал отдельную строку и давал лишний зазор.
+  const showLeft = showStats || showGateHint;
 
   // Плашка в колонке документа: встроенное предупреждение DS (amber) или
   // подтверждение (emerald). Раскладка постоянная — заголовок сверху, под
@@ -221,7 +225,8 @@ export function KbRequiredReadingBanner({
       </div>
 
       {showSecondRow && (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 pl-[26px]">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 sm:pl-[26px]">
+          {showLeft && (
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
             {showStats && stats && (
               <span className="flex items-center gap-2">
@@ -243,13 +248,14 @@ export function KbRequiredReadingBanner({
                 </span>
               </span>
             )}
-            {plate.kind === "unread" && !plate.canConfirm && (
+            {showGateHint && (
               <span className="text-[13px] text-muted-foreground">
                 Сначала прочитайте страницу
               </span>
             )}
           </div>
-          <div className="flex flex-wrap items-center gap-2 max-sm:w-full">
+          )}
+          <div className="ml-auto flex flex-wrap items-center gap-2 max-sm:w-full">
             {showReaders && (
               <Button variant="outline" size="sm" asChild>
                 <Link href={`/knowledge/${pageSlug}/required-reading`}>Кто прочитал</Link>

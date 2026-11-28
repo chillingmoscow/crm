@@ -58,7 +58,10 @@ export function KbTreeNodeMenu({
   const [duplicatePending, setDuplicatePending] = useState(false);
   const [, startFavoriteTransition] = useTransition();
 
-  const visibleActions = canCreate || canDuplicate || canDelete;
+  // Группа «создать / дублировать»; удаление — своя группа под отдельным
+  // разделителем. Без прав на создание остаётся одно удаление — тогда
+  // разделитель один, а не два подряд.
+  const visibleActions = canCreate || canDuplicate;
 
   const stopRowInteraction = (event: SyntheticEvent) => {
     event.stopPropagation();

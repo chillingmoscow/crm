@@ -5,10 +5,11 @@ import { readFileSync } from "node:fs";
 import { parseCssRules } from "./css-scale.ts";
 
 /**
- * Мостик токенов BlockNote → DS. Класс .bn-sheerly стоит на том же
- * элементе, что и тема BN `.bn-container[data-color-scheme=…]` (класс +
- * атрибут). С одним классом наши переменные проигрывали молча: текст статьи
- * был #3f3f3f, выбранный пункт меню серым, ручка блока #cfcfcf.
+ * Мостик токенов BlockNote → DS. Тема BN — `.bn-root` и
+ * `.bn-root[data-color-scheme="dark"]` на том же элементе, что и .bn-sheerly;
+ * с одним классом наши переменные проигрывали молча (текст статьи #3f3f3f,
+ * ручка #cfcfcf, палитра BN). Корней два — редактор и портал меню на body
+ * без `.bn-container`, поэтому селектор `.bn-root.bn-sheerly[data-color-scheme]`.
  */
 const rules = parseCssRules(readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8"));
 
@@ -16,12 +17,14 @@ function rulesDeclaring(prop: string) {
   return rules.filter((r) => r.declarations.some((d) => d.prop === prop));
 }
 
-for (const prop of ["--bn-colors-editor-text", "--bn-colors-selected-background", "--bn-colors-highlights-red-text"]) {
+for (const prop of ["--bn-colors-editor-text", "--bn-colors-side-menu", "--bn-colors-highlights-red-text"]) {
   test(`${prop} is set with a selector stronger than BN's theme`, () => {
     const found = rulesDeclaring(prop);
     assert.ok(found.length > 0, `нет правила с ${prop}`);
     for (const rule of found) {
-      assert.match(rule.selector, /\.bn-root\.bn-container\.bn-sheerly/, rule.selector);
+      // Без .bn-container: он есть только у редактора, а меню («/», цвет,
+      // меню блока) живут в портале на body.
+      assert.equal(rule.selector, ".bn-root.bn-sheerly[data-color-scheme]");
     }
   });
 }

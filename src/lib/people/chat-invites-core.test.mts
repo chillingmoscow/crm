@@ -76,3 +76,44 @@ test("allowPartial sends the successful links plus the failed list, then writes 
   assert.deepEqual(calls.messages[0].buttons, [[{ text: "Один", url: "https://t.me/+c1" }]]);
   assert.ok(tables.staff_telegram_actions.some(r => r.chat_id === "*message*" && r.result === "invited"));
 });
+
+function unbanBot(unbanFail: string[] = []) {
+  const { bot, calls } = fakeBot();
+  const order: string[] = [];
+  const b = bot as unknown as Record<string, unknown>;
+  const create = b.createChatInviteLink as (id: string) => Promise<unknown>;
+  b.createChatInviteLink = async (id: string) => { order.push(`link:${id}`); return create(id); };
+  b.unbanChatMember = async (id: string, userId: number) => {
+    order.push(`unban:${id}:${userId}`);
+    return unbanFail.includes(id) ? { ok: false, description: "not enough rights" } : { ok: true, result: true };
+  };
+  return { bot, calls, order };
+}
+
+test("with a Telegram ID the ban is lifted in each chat before its link is created", async () => {
+  const tables = { telegram_chats: [chat("c1", "Один"), chat("c2", "Два")], staff_telegram_actions: [] as Row[],
+    profiles: [{ id: "u", telegram_id: " 12345 " }] };
+  const { bot, calls, order } = unbanBot();
+  await runChatInvites(fakeDb(tables), bot, args);
+  assert.deepEqual(order, ["unban:c1:12345", "link:c1", "unban:c2:12345", "link:c2"]);
+  assert.equal(calls.messages.length, 1);
+  assert.doesNotMatch(calls.messages[0].text, /Telegram ID в карточке не указан/);
+});
+
+test("a ban that was not lifted counts as a failed chat: no link, the job retries", async () => {
+  const tables = { telegram_chats: [chat("c1", "Один"), chat("c2", "Два")], staff_telegram_actions: [] as Row[],
+    profiles: [{ id: "u", telegram_id: "12345" }] };
+  const { bot, calls, order } = unbanBot(["c2"]);
+  await assert.rejects(runChatInvites(fakeDb(tables), bot, args), /Два: Не удалось снять блокировку/);
+  assert.ok(!order.includes("link:c2"));
+  assert.equal(calls.messages.length, 0);
+});
+
+test("without a Telegram ID nothing is unbanned and the message explains the expired-link case", async () => {
+  const tables = { telegram_chats: [chat("c1", "Один")], staff_telegram_actions: [] as Row[],
+    profiles: [{ id: "u", telegram_id: null }] };
+  const { bot, calls, order } = unbanBot();
+  await runChatInvites(fakeDb(tables), bot, args);
+  assert.deepEqual(order, ["link:c1"]);
+  assert.match(calls.messages[0].text, /Telegram ID в карточке не указан/);
+});

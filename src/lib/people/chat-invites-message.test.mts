@@ -23,3 +23,10 @@ test("failed chats are listed under the message, links stay as buttons", () => {
   assert.match(m.text, /\nНе удалось создать приглашение: Бары, Кухня$/);
   assert.equal(m.buttons?.length, 1);
 });
+
+test("the no-unban hint is added only when there are links and the bans were not lifted", () => {
+  const link = [{ title: "Общий", url: "https://t.me/+b" }];
+  assert.doesNotMatch(buildInviteMessage("А Б", "Бармен", link).text, /Telegram ID в карточке/);
+  assert.match(buildInviteMessage("А Б", "Бармен", link, [], { unbanned: false }).text, /Telegram ID в карточке не указан/);
+  assert.doesNotMatch(buildInviteMessage("А Б", "Бармен", [], [], { unbanned: false }).text, /Telegram ID в карточке/);
+});

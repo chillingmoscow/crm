@@ -15,6 +15,9 @@ import {
   RefreshCw,
   SearchX,
   Target,
+  MoreHorizontal,
+  Percent,
+  CalendarRange,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -73,6 +76,8 @@ import {
 } from "./actions";
 import { StatisticsChart } from "./statistics-chart";
 import { MonthPlanDrawer } from "./_components/month-plan-drawer";
+import { PriceChangesDrawer } from "./_components/price-changes-drawer";
+import { SeasonalityDrawer } from "./_components/seasonality-drawer";
 import { loadPlanSummaryAction } from "./plan-actions";
 
 const labels: Record<string, string> = {
@@ -131,11 +136,6 @@ const columnConfig = [
 }));
 /** Столбцы плана месяца — не из показателей смен, а из «Плана на месяц». */
 const planColumns = ["plan_turnover", "plan_alcohol"];
-const nextMonth = (ym: string) => {
-  const d = new Date(`${ym}-01T12:00:00Z`);
-  d.setUTCMonth(d.getUTCMonth() + 1);
-  return d.toISOString().slice(0, 7);
-};
 const valueColumns = columnConfig.map((c) => c.id).filter((id) => id !== "month" && !planColumns.includes(id));
 const sortFields = columnConfig.map((c) => c.id);
 const countKeys = new Set(["shifts", "checks", "regularGuests"]);
@@ -229,9 +229,9 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
     columns: columnConfig,
   });
   const can = (p: string) => data.permissions.includes(`sales.${p}_shifts`);
-  const canPlan = data.permissions.includes("sales.plan");
   const [plans, setPlans] = useState<Map<string, { turnover: number | null; alcoholShare: number | null }>>(new Map());
   const [planMonth, setPlanMonth] = useState<string | null>(null);
+  const [extra, setExtra] = useState<"prices" | "season" | null>(null);
   const reloadPlans = () =>
     loadPlanSummaryAction().then(unwrapAction)
       .then((list) => setPlans(new Map(list.map((p) => [p.month.slice(0, 7), p]))))
@@ -332,12 +332,12 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
         cell: ({ row }) => {
           const plan = plans.get(row.original.month)?.turnover ?? null;
           const fact = row.original.values.turnover?.value ?? null;
-          if (plan === null) return <span className="text-muted-foreground">—</span>;
           return (
-            <span className="inline-flex flex-col items-end">
-              <Money value={plan} />
-              {fact !== null && <span className="text-xs text-muted-foreground">{Math.round((fact / plan) * 1000) / 10}% выполнено</span>}
-            </span>
+            <button type="button" className="inline-flex flex-col items-end transition-colors hover:text-brand" data-tip="План месяца"
+              onClick={() => setPlanMonth(row.original.month)}>
+              {plan === null ? <span className="text-muted-foreground">—</span> : <Money value={plan} />}
+              {plan !== null && fact !== null && <span className="text-xs text-muted-foreground">{Math.round((fact / plan) * 100)}% плана</span>}
+            </button>
           );
         },
       },
@@ -351,12 +351,12 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
         cell: ({ row }) => {
           const plan = plans.get(row.original.month)?.alcoholShare ?? null;
           const fact = row.original.values.alcoholShare?.value ?? null;
-          if (plan === null) return <span className="text-muted-foreground">—</span>;
           return (
-            <span className="inline-flex flex-col items-end">
-              <span className="tabular-nums">{plan.toLocaleString("ru-RU")}%</span>
-              {fact !== null && <span className="text-xs text-muted-foreground">факт {fact.toLocaleString("ru-RU")}%</span>}
-            </span>
+            <button type="button" className="inline-flex flex-col items-end transition-colors hover:text-brand" data-tip="План месяца"
+              onClick={() => setPlanMonth(row.original.month)}>
+              {plan === null ? <span className="text-muted-foreground">—</span> : <span className="tabular-nums">{plan.toLocaleString("ru-RU")}%</span>}
+              {plan !== null && fact !== null && <span className="text-xs text-muted-foreground">факт {fact.toLocaleString("ru-RU")}%</span>}
+            </button>
           );
         },
       },
@@ -622,10 +622,23 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
             primaryActions={
               <>
                 {source === "native" && (
-                  <Button size="sm" variant={canPlan ? "default" : "outline"} onClick={() => setPlanMonth(plans.has(currentMonth) ? nextMonth(currentMonth) : currentMonth)}>
-                    <Target className="size-4" />
-                    План на {monthLabel(plans.has(currentMonth) ? nextMonth(currentMonth) : currentMonth)}
-                  </Button>
+                  <>
+                    <Button size="sm" variant="outline" onClick={() => setPlanMonth(currentMonth)}>
+                      <Target className="size-4" />
+                      План месяца
+                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button size="sm" variant="outline" className="w-9 px-0" aria-label="Ещё" data-tip="Ещё">
+                          <MoreHorizontal className="size-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-56">
+                        <DropdownMenuItem onSelect={() => setExtra("prices")}><Percent className="size-4" />Изменения цен</DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => setExtra("season")}><CalendarRange className="size-4" />Сезонность</DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </>
                 )}
                 {reportsButton}
               </>
@@ -774,6 +787,8 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
         currentMonth={currentMonth}
         onSaved={() => void reloadPlans()}
       />
+      <PriceChangesDrawer open={extra === "prices"} onOpenChange={(v) => { if (!v) setExtra(null); }} month={currentMonth} onSaved={() => undefined} />
+      <SeasonalityDrawer open={extra === "season"} onOpenChange={(v) => { if (!v) setExtra(null); }} month={currentMonth} onSaved={() => undefined} />
       <EditDrawer
         open={!!detail}
         onOpenChange={(open) => !open && setDetail(null)}

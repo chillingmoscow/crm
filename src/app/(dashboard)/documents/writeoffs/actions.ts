@@ -11,7 +11,6 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
 import type {
   StoredWriteoff,
-  WriteoffArchive,
   WriteoffRules,
 } from "@/lib/stock/writeoffs";
 import type { WriteoffPoolAssignment } from "@/lib/stock/writeoff-pools";
@@ -43,7 +42,6 @@ export type WriteoffData = {
   venueId: string;
   permissions: string[];
   documents: StoredWriteoff[];
-  archives: WriteoffArchive[];
   jobs: WriteoffJobStatus[];
   /** Кто платит за акт; ключ - внешний ID акта Quick Resto. */
   assignments: WriteoffPoolAssignment[];
@@ -161,17 +159,12 @@ async function loadWriteoffsImpl(expected?: string): Promise<WriteoffData> {
   const rows = <T>(table: string, cols: string, order: string) =>
     pagedRows<T>(s, table, cols, order);
   const canAssign = s.permissions.includes("inventory.assign_writeoff_pool");
-  const [documents, archives, source, jobs, connection, marks, targets, rules] =
+  const [documents, source, jobs, connection, marks, targets, rules] =
     await Promise.all([
       rows<StoredWriteoff>(
         "stock_writeoff_documents",
         "id,venue_id,business_date,external_id,payload,source_hash,captured_at,version,missing_at",
         "business_date",
-      ),
-      rows<WriteoffArchive>(
-        "stock_writeoff_archive",
-        "id,venue_id,business_date,legacy_ref,name,quantity,total,correspondent,kind,document_number,document_url,category,deleted,delete_reason,period_total_raw,issues,origin,captured_at",
-        "captured_at",
       ),
       s.db
         .from<{
@@ -219,7 +212,6 @@ async function loadWriteoffsImpl(expected?: string): Promise<WriteoffData> {
     venueId: s.venueId,
     permissions: s.permissions,
     documents,
-    archives,
     jobs: (jobs.data ?? []) as WriteoffJobStatus[],
     assignments: marks.map(toAssignment),
     targets: (targets.data as WriteoffPoolTargets | null) ?? {

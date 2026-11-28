@@ -4,7 +4,6 @@ import type { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import { softDeleteKbPage, restoreKbPage } from "@/lib/knowledge/pages";
-import { kbToastTitle } from "@/lib/knowledge/toast-title";
 import { errorText } from "@/lib/actions/error-text";
 
 type Router = ReturnType<typeof useRouter>;
@@ -12,7 +11,7 @@ type Router = ReturnType<typeof useRouter>;
 /**
  * Soft-delete страницы БЕЗ confirm-диалога: удаление обратимо (страница
  * уходит в корзину, не стирается), поэтому подтверждение лишнее. Вместо
- * него — обычное уведомление сверху с действием «Отменить» (cascade
+ * него — жёлтое уведомление сверху с действием «Отменить» (cascade
  * restore через kb_restore_cascade). Notion-паттерн.
  *
  * `redirectToIndex` (default true): после удаления уводим на /knowledge
@@ -39,12 +38,15 @@ export async function softDeletePageWithUndo({
   }
 
   const title = pageTitle?.trim() || "Без названия";
-  // Обычное уведомление, не ошибка: удаление обратимо. Одна строка —
-  // длинное название сокращаем, «Восстановить можно из корзины» не пишем:
-  // для этого есть «Отменить» (замечание владельца 28.11.2026).
-  toast(`«${kbToastTitle(title)}» в корзине`, {
-    description:
-      childCount > 0 ? `Вместе с вложенными страницами: ${childCount}` : undefined,
+  // Жёлтое предупреждение: страница не стёрта, но пропала из дерева — это
+  // должно бросаться в глаза. Название — целиком, отдельной строкой под
+  // заголовком, чтобы было видно, что именно удалено (замечание владельца
+  // 28.11.2026: сокращённое «Обслуживание каль…» не узнать).
+  const nested =
+    childCount > 0 ? `\nВместе с вложенными страницами: ${childCount}` : "";
+  toast.warning("Страница в корзине", {
+    description: `«${title}»${nested}`,
+    classNames: { description: "whitespace-pre-line break-words" },
     action: {
       label: "Отменить",
       onClick: async () => {
@@ -53,7 +55,7 @@ export async function softDeletePageWithUndo({
           toast.error(errorText(new Error(restoreError), "Не удалось восстановить страницу"));
           return;
         }
-        toast.success(`«${kbToastTitle(title)}» восстановлена`);
+        toast.success("Страница восстановлена", { description: `«${title}»` });
         router.refresh();
       },
     },

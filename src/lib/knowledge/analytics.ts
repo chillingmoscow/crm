@@ -274,7 +274,7 @@ export async function getKbMonthlyTrend(args?: {
   try {
     const supabase = await createClient();
     // Месяцы — в поясе аккаунта (как группирует kb_analytics_month_stats с
-    // миграции 421): `now` и `startMonth` — календарные метки этого пояса.
+    // миграции 423): `now` и `startMonth` — календарные метки этого пояса.
     const timeZone = await getActiveAccountTimezone();
     const now = new Date(`${calendarDateInZone(new Date().toISOString(), timeZone)}T00:00:00.000Z`);
     let startMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1));

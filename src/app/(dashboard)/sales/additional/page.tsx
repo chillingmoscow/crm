@@ -41,7 +41,7 @@ export default async function AdditionalPage() {
   ]);
   const month = additionalLatestMonth(data);
   // Без данных за месяц «Обзора» нет — и рейтинг не нужен.
-  const hasData = data.reports.length + data.archives.length + data.upsellDays.length > 0;
+  const hasData = data.reports.length + data.upsellDays.length > 0;
   const initialRanking =
     overviewOpen === false || !hasData
       ? undefined

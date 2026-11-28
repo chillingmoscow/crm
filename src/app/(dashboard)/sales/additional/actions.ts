@@ -23,10 +23,9 @@ import {
   type RankingEntry,
 } from "@/lib/sales/upsell-ranking";
 
-import type { DayArchive, DayReference } from "@/lib/sales/day-context";
+import type { DayReference } from "@/lib/sales/day-context";
 import {
   type AdditionalDay,
-  type AdditionalArchive,
   type AdditionalRuleVersion,
 } from "@/lib/sales/additional";
 
@@ -67,10 +66,8 @@ export type AdditionalData = {
   hour: number;
   nextFrom: string;
   reports: AdditionalDay[];
-  archives: AdditionalArchive[];
   rules: AdditionalRuleVersion[];
   days: DayReference[];
-  dayArchives: DayArchive[];
   /** Активные подразделения заведения; version 0 — своих правил ещё нет. */
   departments: UpsellDepartment[];
   upsellRules: UpsellRuleVersion[];
@@ -194,11 +191,9 @@ async function loadAdditionalImpl(
   }
   const [
     reports,
-    archives,
     rules,
     source,
     days,
-    dayArchives,
     settings,
     upsellRules,
     upsellDays,
@@ -208,11 +203,6 @@ async function loadAdditionalImpl(
         "sales_additional_reports",
         "id,venue_id,business_date,kind,request,metrics,metrics_request,state,last_error,synced_at,period_start,period_end",
         "business_date",
-      ),
-      rows<AdditionalArchive>(
-        "sales_additional_archive",
-        "id,venue_id,business_date,kind,metrics,captured_at,origin",
-        "captured_at",
       ),
       rows<AdditionalRuleVersion>(
         "sales_additional_rules",
@@ -231,11 +221,6 @@ async function loadAdditionalImpl(
         "sales_days",
         "id,venue_id,business_date,calculated,overrides,status,updated_at",
         "business_date",
-      ),
-      rows<DayArchive>(
-        "sales_day_archive",
-        "id,venue_id,business_date,legacy_ref,metrics,captured_at,imported_at,origin",
-        "captured_at",
       ),
       s.db
         .from<{ timezone: string; day_start_hour: number }>("sales_settings")
@@ -275,10 +260,8 @@ async function loadAdditionalImpl(
       1,
     ),
     reports,
-    archives,
     rules,
     days,
-    dayArchives,
     departments: upsell.departments,
     upsellRules,
     upsellDays,

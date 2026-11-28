@@ -1,6 +1,5 @@
 import {
   defaultAdditionalRules,
-  type AdditionalArchive,
   type AdditionalDay,
   type AdditionalKind,
   type AdditionalMetrics,
@@ -8,7 +7,6 @@ import {
 } from "./additional.ts";
 import {
   dayContext,
-  type DayArchive,
   type DayContextValue,
   type DayReference,
 } from "./day-context.ts";
@@ -38,7 +36,6 @@ export type AdditionalRow = {
   metrics: AdditionalRowMetrics | null;
   rules: AdditionalRules;
   native?: AdditionalDay;
-  archive?: AdditionalArchive;
   /**
    * День новой схемы (с даты перехода подразделения). `day` — расчёт по
    * чекам (null — дня ещё нет в очереди), `lines` — строки версии правил на
@@ -56,9 +53,7 @@ export type AdditionalRow = {
 export type AdditionalViewData = {
   venueId: string;
   reports: AdditionalDay[];
-  archives: AdditionalArchive[];
   days: DayReference[];
-  dayArchives: DayArchive[];
   departments: { id: string; name: string; legacyKind: AdditionalKind | null }[];
   /** Версии правил, `valid_from desc, created_at desc`. */
   upsellRules: {
@@ -113,8 +108,7 @@ export function additionalTabs(data: AdditionalViewData): AdditionalTab[] {
   for (const kind of ["bar", "masters"] as const)
     if (
       !data.departments.some((d) => d.legacyKind === kind) &&
-      (data.reports.some((r) => r.kind === kind) ||
-        data.archives.some((r) => r.kind === kind))
+      data.reports.some((r) => r.kind === kind)
     )
       tabs.push({
         id: LEGACY_PREFIX + kind,
@@ -156,7 +150,7 @@ export function readyUpsellResult(day: UpsellViewDay | null | undefined) {
 
 /**
  * Дни подразделения: до даты перехода — старая очередь его вида (как
- * `additionalRows`, вместе с архивом Glide для дней без отчёта), с даты
+ * `additionalRows`), с даты
  * перехода — расчёт по чекам. Выручка и себестоимость дня новой схемы — из
  * отчёта Quick Resto того же дня.
  */
@@ -167,7 +161,7 @@ export function departmentRows(
   const kind = departmentId.startsWith(LEGACY_PREFIX)
     ? (departmentId.slice(LEGACY_PREFIX.length) as AdditionalKind)
     : (data.departments.find((d) => d.id === departmentId)?.legacyKind ?? null);
-  const legacy = kind ? additionalRows(data.reports, data.archives, kind, data) : [];
+  const legacy = kind ? additionalRows(data.reports, kind, data) : [];
   const switchDate = upsellSwitchDate(data, departmentId);
   if (switchDate === null) return legacy;
   const reportByDate = new Map(
@@ -206,7 +200,7 @@ export function departmentRows(
         lines: upsellLinesFor(data, departmentId, date),
         report,
       },
-      context: dayContext(data.venueId, date, "native", data.days, data.dayArchives),
+      context: dayContext(data.venueId, date, data.days),
     };
   });
   return [...legacy.filter((r) => r.date < switchDate), ...fresh].sort((a, b) =>
@@ -231,15 +225,13 @@ export function upsellUnknown(rows: AdditionalRow[]) {
  */
 export function additionalRows(
   reports: AdditionalDay[],
-  archives: AdditionalArchive[],
   kind: AdditionalKind,
   context?: {
     venueId: string;
     days: DayReference[];
-    dayArchives: DayArchive[];
   },
 ): AdditionalRow[] {
-  const native: AdditionalRow[] = reports
+  return reports
     .filter((r) => r.kind === kind)
     .map((r) => ({
       id: r.id,
@@ -249,44 +241,10 @@ export function additionalRows(
       rules: (r.metrics_request ?? r.request).rules,
       native: r,
       context: context
-        ? dayContext(context.venueId, r.business_date, "native", context.days, context.dayArchives)
+        ? dayContext(context.venueId, r.business_date, context.days)
         : undefined,
-    }));
-  const latest = new Map<string, AdditionalArchive>();
-  for (const r of archives.filter((r) => r.kind === kind)) {
-    const old = latest.get(r.business_date);
-    if (
-      !old ||
-      r.captured_at > old.captured_at ||
-      (r.captured_at === old.captured_at && r.id > old.id)
-    )
-      latest.set(r.business_date, r);
-  }
-  const withMetrics = new Set(native.filter((r) => r.metrics).map((r) => r.date));
-  const fromArchive: AdditionalRow[] = [...latest.values()]
-    .filter((r) => !withMetrics.has(r.business_date))
-    .map((r) => ({
-      id: r.id,
-      date: r.business_date,
-      kind,
-      metrics: r.metrics,
-      rules: defaultAdditionalRules,
-      archive: r,
-      context: context
-        ? dayContext(
-            context.venueId,
-            r.business_date,
-            "archive",
-            context.days,
-            context.dayArchives,
-            r.origin.legacy_shift_id,
-          )
-        : undefined,
-    }));
-  const archived = new Set(fromArchive.map((r) => r.date));
-  return [...native.filter((r) => !archived.has(r.date)), ...fromArchive].sort((a, b) =>
-    b.date.localeCompare(a.date),
-  );
+    }))
+    .sort((a, b) => b.date.localeCompare(a.date));
 }
 export function additionalValue(r: AdditionalRow, key: string): number | null {
   if (key === "turnover") return r.context?.turnover ?? null;

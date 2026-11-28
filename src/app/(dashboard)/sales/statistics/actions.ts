@@ -10,17 +10,15 @@ import { actionResult } from "@/lib/actions/result";
 import { loadSales } from "../shifts/actions";
 import type { SalesData } from "@/lib/sales/types";
 import type { StatisticsReport } from "@/lib/sales/statistics-reports";
-import type { StatisticsArchive } from "@/lib/sales/statistics-view";
 import { processStatisticsReport } from "@/lib/sales/statistics-sync";
 export type StatisticsData = SalesData & {
   reports: StatisticsReport[];
   reportsConfigured: boolean;
-  archives: StatisticsArchive[];
 };
 async function loadStatisticsImpl(): Promise<StatisticsData> {
   const data = await loadSales();
   const db = asLooseDb(await createClient());
-  const [reports, config, archive] = await Promise.all([
+  const [reports, config] = await Promise.all([
     db
       .from<StatisticsReport[]>("sales_month_reports")
       .select(
@@ -35,35 +33,10 @@ async function loadStatisticsImpl(): Promise<StatisticsData> {
       .select("enabled")
       .eq("venue_id", data.venueId)
       .maybeSingle(),
-    db
-      .from<StatisticsArchive[]>("sales_statistics_archive")
-      .select(
-        "id,venue_id,month,metrics,weekday_turnover,note,captured_at,origin",
-      )
-      .eq("venue_id", data.venueId)
-      .order("month", { ascending: false })
-      .order("captured_at", { ascending: false })
-      .order("id")
-      .range(0, 999),
   ]);
-  if (reports.error || config.error || archive.error)
+  if (reports.error || config.error)
     throw new Error("Не удалось загрузить месячные отчёты");
   const allReports = reports.data ?? [];
-  const archives = archive.data ?? [];
-  for (let start = 1000; archives.length === start; start += 1000) {
-    const next = await db
-      .from<StatisticsArchive[]>("sales_statistics_archive")
-      .select(
-        "id,venue_id,month,metrics,weekday_turnover,note,captured_at,origin",
-      )
-      .eq("venue_id", data.venueId)
-      .order("month", { ascending: false })
-      .order("captured_at", { ascending: false })
-      .order("id")
-      .range(start, start + 999);
-    if (next.error) throw new Error("Не удалось загрузить архив статистики");
-    archives.push(...(next.data ?? []));
-  }
   for (let start = 1000; allReports.length === start; start += 1000) {
     const next = await db
       .from<StatisticsReport[]>("sales_month_reports")
@@ -84,7 +57,6 @@ async function loadStatisticsImpl(): Promise<StatisticsData> {
     ...data,
     reports: allReports,
     reportsConfigured: config.data?.enabled ?? false,
-    archives,
   };
 }
 async function requestStatisticsMonthImpl(month: string, venueId: string) {

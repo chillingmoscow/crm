@@ -5,7 +5,6 @@ import {
   FileText,
   Package,
   Tag,
-  Trash2,
   UserRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -106,7 +105,6 @@ export function WriteoffDrawer({
   const d = row.native?.payload,
     plan = d ? personalConsumptionPlan(d, data.rules?.personalFinance) : null;
   const sourceUrl =
-    row.archive?.document_url ??
     (d && data.providerOrigin
       ? `${data.providerOrigin}/#/warehouse.documents.discard?id=${d.id}&className=ru.edgex.quickresto.modules.warehouse.documents.discard.DiscardInvoice&tab=general`
       : null);
@@ -158,7 +156,7 @@ export function WriteoffDrawer({
       title={row.name}
       description={[
         formatDayMonth(row.date),
-        row.archive ? "Архив Glide" : row.store,
+        row.store,
       ]
         .filter(Boolean)
         .join(" · ")}
@@ -193,11 +191,6 @@ export function WriteoffDrawer({
         {row.quantity && (
           <DrawerSummaryItem icon={<Package />} label="Недостача">
             {row.quantity}
-          </DrawerSummaryItem>
-        )}
-        {row.archive?.deleted && row.archive.delete_reason && (
-          <DrawerSummaryItem icon={<Trash2 />} label="Причина удаления">
-            {row.archive.delete_reason}
           </DrawerSummaryItem>
         )}
       </DrawerSummary>
@@ -268,30 +261,7 @@ export function WriteoffDrawer({
         </DrawerSection>
       )}
       <DrawerSection title="История изменений">
-        {row.archive ? (
-          <div className="space-y-2 text-sm">
-            <p>
-              Перенесено из Glide · {writeoffStamp(row.archive.captured_at, tz)}
-            </p>
-            <a
-              className="inline-flex items-center gap-1 text-brand hover:underline"
-              target="_blank"
-              rel="noreferrer"
-              href={`https://docs.google.com/spreadsheets/d/${encodeURIComponent(row.archive.origin.spreadsheet_id)}/edit#range=${encodeURIComponent(row.archive.origin.range)}`}
-            >
-              Исходная строка
-              <ExternalLink className="size-3.5" />
-            </a>
-            {row.archive.period_total_raw != null && (
-              <p className="text-xs text-muted-foreground">
-                В источнике есть поле «Сумма списаний»:{" "}
-                {formatRub(row.archive.period_total_raw, { fraction: "auto" })}.
-                Значение повторяется в строках источника и к сумме этой записи
-                не прибавляется.
-              </p>
-            )}
-          </div>
-        ) : error ? (
+        {error ? (
           <div
             role="alert"
             className="flex flex-col gap-3 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm sm:flex-row sm:items-center sm:justify-between"

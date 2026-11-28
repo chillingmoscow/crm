@@ -67,7 +67,7 @@ export function CollectionSortsEditor({
                 fields={fields}
                 value={field.id}
                 placeholder="Выбрать свойство"
-                searchPlaceholder="Найти свойство..."
+                searchPlaceholder="Найти свойство…"
                 onChange={(fieldId) =>
                   updateSort(sort.id, { fieldId })
                 }
@@ -106,7 +106,7 @@ export function CollectionSortsEditor({
         fields={fields}
         value=""
         placeholder="Добавить сортировку"
-        searchPlaceholder="Найти свойство..."
+        searchPlaceholder="Найти свойство…"
         onChange={addSort}
       />
     </div>

@@ -347,7 +347,7 @@ export function CollectionSettings({
         <Input
           value={viewDescriptionDraft}
           className="kb-collection-settings-description-compact"
-          placeholder="Добавить описание..."
+          placeholder="Добавить описание…"
           aria-label="Описание вида"
           onPointerDown={stopBlockInteraction}
           onMouseDown={stopBlockInteraction}
@@ -490,6 +490,7 @@ export function CollectionSettings({
               <span />
               <span />
             </button>
+            <div className="kb-collection-column-menu-separator" role="separator" />
             <button
               type="button"
               className="kb-collection-settings-nav-row text-destructive"

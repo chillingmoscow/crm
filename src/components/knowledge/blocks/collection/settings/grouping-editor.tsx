@@ -44,7 +44,7 @@ export function CollectionGroupingEditor({
           value={currentField?.id ?? ""}
           placeholder="Выбрать свойство"
           emptyLabel="Без группировки"
-          searchPlaceholder="Найти свойство..."
+          searchPlaceholder="Найти свойство…"
           onChange={(fieldId) => {
             onChange(fieldId ? createCollectionGrouping(fieldId, direction) : null);
           }}

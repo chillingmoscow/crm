@@ -79,6 +79,10 @@ Whenever a component here needs a pure transform, import it from `@/lib/knowledg
 - Components receive everything they need via props. No reaching into Provider context except inside the orchestrator and in `useKbCollectionRuntime` consumers (currently only the orchestrator).
 - DOM-event stoppers — `stopBlockInteraction` and `stopBlockMenuAction` from `shared.ts` — are wired onto every interactive surface inside the block so BlockNote's selection / DnD doesn't swallow clicks.
 
+## Look
+
+Вид блока — по `docs/design-system.md` → «База знаний» → «Коллекции». CSS живёт в `src/app/globals.css` (участок «Collection block»); `src/lib/knowledge/collection-styles.test.mts` проверяет, что кегли, начертания, радиусы и тени в нём по шкале.
+
 ## Tests
 
 Pure modules under `src/lib/knowledge/collection-*.test.mts` (run with `node --experimental-strip-types --test <path>`). Component tests are not in place — render-level testing for these BlockNote-embedded components is out of scope until BlockNote test harness is wired.

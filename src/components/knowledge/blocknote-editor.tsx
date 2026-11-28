@@ -106,12 +106,7 @@ import "@blocknote/shadcn/style.css";
 
 import type { KbBlock } from "@/types/knowledge";
 import { KB_GALLERY_EMPTY_JSON } from "@/lib/knowledge/gallery";
-import {
-  KB_COLLECTION_DEFAULT_VISIBLE_FIELDS,
-  KB_COLLECTION_EMPTY_SCHEMA,
-  createCollectionId,
-  getPageCollectionId,
-} from "@/lib/knowledge/collection";
+import { kbCollectionSlashProps } from "@/lib/knowledge/collection";
 
 /** Custom URL scheme used to mark uploaded KB files. The string after
  *  `kbfile://` is the storage_path inside `account-attachments`.
@@ -347,18 +342,7 @@ function getKbCollectionSlashItem(
     onItemClick: () => {
       insertOrUpdateBlockForSlashMenu(editor, {
         type: "collection",
-        props: {
-          view: "list",
-          title: "Коллекция",
-          viewTitle: "Галерея",
-          collectionId: pageId
-            ? getPageCollectionId(pageId)
-            : createCollectionId(),
-          schemaJson: KB_COLLECTION_EMPTY_SCHEMA,
-          visibleFieldIdsJson: KB_COLLECTION_DEFAULT_VISIBLE_FIELDS,
-          fieldOrderIdsJson: KB_COLLECTION_DEFAULT_VISIBLE_FIELDS,
-          viewId: "",
-        },
+        props: kbCollectionSlashProps(pageId ?? null),
       } as never);
     },
   };

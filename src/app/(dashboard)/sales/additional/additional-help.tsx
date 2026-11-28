@@ -48,11 +48,11 @@ export function SalesAdditionalHelp() {
         </p>
       </section>
       <section className="space-y-2">
-        <h3 className="font-semibold">Архив Glide</h3>
+        <h3 className="font-semibold">Дни из прежнего учёта</h3>
         <p>
-          Дни до запуска расчёта в Sheerly показаны из прежнего учёта в Glide,
-          без пересчёта. Над таблицей написано, какие дни месяца взяты из
-          архива.
+          Дни до запуска расчёта в Sheerly перенесены из Glide в общий учёт:
+          суммы сохранены как были, без пересчёта. В карточке такого дня
+          написано «Перенесено из прежнего учёта».
         </p>
       </section>
     </>

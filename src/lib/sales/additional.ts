@@ -135,26 +135,14 @@ export type AdditionalDay = {
   business_date: string;
   kind: AdditionalKind;
   metrics: AdditionalMetrics | null;
-  request: { rules: AdditionalRules; rule_id: string };
+  /** `imported_from: "glide"` — день перенесён из прежнего учёта в Glide, суммы без пересчёта. */
+  request: { rules: AdditionalRules; rule_id: string; imported_from?: "glide" };
   metrics_request: { rules: AdditionalRules; rule_id: string } | null;
   state: "pending" | "running" | "ready" | "error";
   last_error: string | null;
   synced_at: string | null;
   period_start: string | null;
   period_end: string | null;
-};
-export type AdditionalArchive = {
-  id: string;
-  venue_id: string;
-  business_date: string;
-  kind: AdditionalKind;
-  metrics: AdditionalMetrics;
-  captured_at: string;
-  origin: {
-    spreadsheet_id: string;
-    ranges: string[];
-    legacy_shift_id?: string;
-  };
 };
 export type ReportRow = { type?: string; object: Record<string, unknown> };
 export type AdditionalReport = {

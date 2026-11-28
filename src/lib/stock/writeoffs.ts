@@ -57,26 +57,6 @@ export type WriteoffDocument = {
   issues: string[];
   providerUpdatedAt: string | null;
 };
-export type WriteoffArchive = {
-  id: string;
-  venue_id: string;
-  business_date: string;
-  legacy_ref: string;
-  name: string;
-  quantity: string | null;
-  total: number | null;
-  correspondent: string;
-  kind: string;
-  document_number: string | null;
-  document_url: string | null;
-  category: string | null;
-  deleted: boolean;
-  delete_reason: string | null;
-  issues: string[];
-  origin: { spreadsheet_id: string; range: string };
-  captured_at: string;
-  period_total_raw?: number | null;
-};
 export type StoredWriteoff = {
   id: string;
   venue_id: string;

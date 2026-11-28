@@ -1,18 +1,16 @@
 /**
  * Месяц, который «Допродажи» открывают первым: последний с данными (отчёты,
- * архив, дни допродаж), а без данных — месяц начала расчёта. Общий для
+ * дни допродаж), а без данных — месяц начала расчёта. Общий для
  * страницы (сервер грузит под него рейтинг) и клиента — чтобы они совпадали.
  */
 export function additionalLatestMonth(data: {
   reports: { business_date: string }[];
-  archives: { business_date: string }[];
   upsellDays: { business_date: string }[];
   nextFrom: string;
 }): string {
   return (
     [
       ...data.reports.map((r) => r.business_date),
-      ...data.archives.map((r) => r.business_date),
       ...data.upsellDays.map((r) => r.business_date),
     ]
       .sort()

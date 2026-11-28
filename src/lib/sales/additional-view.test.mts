@@ -65,9 +65,7 @@ function data(over: Partial<AdditionalViewData> = {}): AdditionalViewData {
   return {
     venueId: "v",
     reports: [],
-    archives: [],
     days: [],
-    dayArchives: [],
     departments: [
       { id: BAR, name: "Бар", legacyKind: "bar" },
       { id: MASTERS, name: "Кальяны", legacyKind: "masters" },
@@ -319,19 +317,17 @@ test("строки дня — из версии, действующей на д�
   );
 });
 
-test("архив Glide — старые дни рядом с днями по чекам", () => {
+test("перенесённые из Glide дни — рядом с днями по чекам", () => {
   const rows = departmentRows(
     data({
-      archives: [
-        {
-          id: "a1",
-          venue_id: "v",
-          business_date: "2025-01-10",
-          kind: "bar",
-          metrics: { revenue: 1, primeCost: 1, bonus: 300, points: null, quantities: {} },
-          captured_at: "2025-02-01T00:00:00Z",
-          origin: { spreadsheet_id: "s", ranges: ["A1"] },
-        },
+      reports: [
+        report("2025-01-10", "bar", 300, {
+          request: {
+            rules: defaultAdditionalRules,
+            rule_id: "r",
+            imported_from: "glide",
+          },
+        }),
       ],
       upsellDays: [
         {
@@ -406,45 +402,6 @@ test("позиции не из номенклатуры — только по г
     { key: "?:7", quantity: 2 },
     { key: "dish:99", quantity: 1.5 },
   ]);
-});
-
-test("архив Glide подставляется сам для дней без отчёта с показателями", () => {
-  const archive = (date: string, bonus: number, captured = "2026-11-01T00:00:00Z") => ({
-    id: `a-${date}-${captured}`,
-    venue_id: "v",
-    business_date: date,
-    kind: "bar" as const,
-    metrics: { revenue: 1, primeCost: 1, bonus, points: null, quantities: {} },
-    captured_at: captured,
-    origin: { spreadsheet_id: "s", ranges: ["Fees!A1"] },
-  });
-  const rows = departmentRows(
-    data({
-      upsellRules: [],
-      reports: [
-        report("2026-10-30", "bar", 500),
-        report("2026-10-29", "bar", 0, { metrics: null, state: "pending" }),
-      ],
-      archives: [
-        archive("2026-10-28", 300),
-        archive("2026-10-28", 310, "2026-11-02T00:00:00Z"),
-        archive("2026-10-29", 320),
-        archive("2026-10-30", 330),
-      ],
-    }),
-    BAR,
-  );
-  assert.deepEqual(
-    rows.map((r) => [r.date, r.archive ? "archive" : "native", additionalValue(r, "bonus")]),
-    [
-      // Отчёт с показателями важнее архива.
-      ["2026-10-30", "native", 500],
-      // Отчёта без показателей мало — день берётся из архива.
-      ["2026-10-29", "archive", 320],
-      // Из архива — последний снимок дня.
-      ["2026-10-28", "archive", 310],
-    ],
-  );
 });
 
 test("предварительный день показывает последний расчёт и во время пересчёта", () => {

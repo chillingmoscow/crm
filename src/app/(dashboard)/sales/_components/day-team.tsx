@@ -21,12 +21,10 @@ import { loadDayTeam } from "../day-actions";
 
 export function DayTeamList({
   members,
-  source,
   showExtras = false,
   date,
 }: {
   members: DayMember[];
-  source: "native" | "archive";
   showExtras?: boolean;
   date?: string;
 }) {
@@ -163,16 +161,6 @@ export function DayTeamList({
                         Расчёт сотрудника
                       </Link>
                     )}
-                    {source === "archive" && m.origin && (
-                      <a
-                        className="text-[13px] text-brand hover:underline"
-                        target="_blank"
-                        rel="noreferrer"
-                        href={`https://docs.google.com/spreadsheets/d/${encodeURIComponent(m.origin.spreadsheet_id)}/edit#range=${encodeURIComponent(m.origin.range)}`}
-                      >
-                        Исходная запись в архиве Glide
-                      </a>
-                    )}
                   </div>
                 </div>
               </ExpandPanel>
@@ -182,9 +170,7 @@ export function DayTeamList({
       </ul>
       {!members.length && (
         <p className="py-4 text-sm text-muted-foreground">
-          {source === "archive"
-            ? "В архиве нет сотрудников за этот день"
-            : "Начисления за этот день ещё не загружены"}
+          Начисления за этот день ещё не загружены
         </p>
       )}
     </div>
@@ -193,14 +179,10 @@ export function DayTeamList({
 export function DayTeamPanel({
   venueId,
   date,
-  source,
-  archiveId,
   kind,
 }: {
   venueId: string;
   date: string;
-  source: "native" | "archive";
-  archiveId?: string;
   kind?: AdditionalKind;
 }) {
   const [data, setData] = useState<DayTeam | null>(null),
@@ -210,7 +192,7 @@ export function DayTeamPanel({
     let live = true;
     setData(null);
     setError("");
-    void loadDayTeam(venueId, date, source, archiveId)
+    void loadDayTeam(venueId, date)
       .then(unwrapAction)
       .then((d) => live && setData(d))
       .catch(
@@ -225,7 +207,7 @@ export function DayTeamPanel({
     return () => {
       live = false;
     };
-  }, [venueId, date, source, archiveId, attempt]);
+  }, [venueId, date, attempt]);
   if (error)
     return (
       <div role="alert" className="space-y-3 text-sm">
@@ -251,7 +233,7 @@ export function DayTeamPanel({
     : data.members;
   return (
     <div className="space-y-3">
-      <DayTeamList date={date} members={members} source={source} showExtras={!!kind} />
+      <DayTeamList date={date} members={members} showExtras={!!kind} />
     </div>
   );
 }

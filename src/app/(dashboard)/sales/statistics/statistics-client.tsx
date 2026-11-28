@@ -10,7 +10,6 @@ import {
 } from "@tanstack/react-table";
 import { arrayMove } from "@dnd-kit/sortable";
 import {
-  Archive,
   ChartNoAxesCombined,
   RefreshCw,
   SearchX,
@@ -19,13 +18,6 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
-import { EditDrawer } from "@/components/ui/edit-drawer";
-import {
-  DrawerSection,
-  DrawerStatus,
-  DrawerSummary,
-  DrawerSummaryTotal,
-} from "@/components/ui/drawer-blocks";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -43,7 +35,6 @@ import {
   TableConditions,
   TableControls,
   TableFilterChip,
-  TableIconButton,
   TablePageHeader,
   TableSortPicker,
   useTableState,
@@ -139,15 +130,6 @@ const reportKinds: Record<string, string> = {
   regular_guests: "Постоянные гости",
   average_check: "Средний чек",
 };
-const weekdays = [
-  "Понедельник",
-  "Вторник",
-  "Среда",
-  "Четверг",
-  "Пятница",
-  "Суббота",
-  "Воскресенье",
-];
 const stateText = {
   ready: "Обновлено",
   error: "Не обновлено",
@@ -156,12 +138,13 @@ const stateText = {
 } as const;
 
 const shiftHref = (month: string) => `/sales/shifts?month=${month.slice(0, 7)}`;
-const sourceRows = (data: StatisticsData, source: "native" | "archive") =>
+// Архив Glide на странице больше не показываем: только учёт Sheerly.
+const sourceRows = (data: StatisticsData) =>
   buildStatisticsRows(
     data.days,
     data.reports,
-    data.archives,
-    source,
+    [],
+    "native",
     data.timezone,
     data.settings?.day_start_hour ?? 9,
   );
@@ -205,19 +188,12 @@ function Amount({ value, id }: { value?: StatisticsValue; id: string }) {
 export function StatisticsClient({ initial }: { initial: StatisticsData }) {
   const router = useRouter();
   const [data, setData] = useState(initial);
-  const [source, setSource] = useState<"native" | "archive">("native");
-  const months = useMemo(() => sourceRows(data, source), [data, source]);
-  const nativeMonths = useMemo(() => sourceRows(data, "native"), [data]);
+  const months = useMemo(() => sourceRows(data), [data]);
+  const nativeMonths = months;
   const [year, setYear] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [reportBusy, setReportBusy] = useState(false),
     [exporting, setExporting] = useState(false);
-  const [detail, setDetail] = useState<StatisticsRow | null>(null);
-  // Панель закрывается с анимацией: пока она уезжает, показываем последний месяц.
-  const [shownDetail, setShownDetail] = useState(detail);
-  useEffect(() => {
-    if (detail) setShownDetail(detail);
-  }, [detail]);
   const st = useTableState({
     tableId: `sales-statistics.v3.${initial.venueId}`,
     columns: columnConfig,
@@ -258,11 +234,6 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
     st.setSearch("");
     st.setSorting([]);
   };
-  const changeSource = (next: "native" | "archive") => {
-    setSource(next);
-    setYear("");
-    setDetail(null);
-  };
 
   const columns = useMemo<ColumnDef<StatisticsRow>[]>(
     () => [
@@ -275,17 +246,13 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
         enableHiding: false,
         cell: ({ row }) => {
           const r = row.original;
-          const sub = r.archive
-            ? `Снимок ${formatDayMonth(r.archive.captured_at.slice(0, 10))}`
-            : `${countRu(r.native!.shifts, "смена", "смены", "смен")}${r.native!.preliminary ? ` · предварительных ${r.native!.preliminary}` : ""}`;
+          const sub = `${countRu(r.native!.shifts, "смена", "смены", "смен")}${r.native!.preliminary ? ` · предварительных ${r.native!.preliminary}` : ""}`;
           return (
             <div className="min-w-0">
               <button
                 type="button"
                 className="block max-w-full truncate text-left font-medium transition-colors duration-200 first-letter:uppercase hover:text-brand focus-visible:text-brand focus-visible:outline-none"
-                onClick={() =>
-                  r.archive ? setDetail(r) : router.push(shiftHref(r.month))
-                }
+                onClick={() => router.push(shiftHref(r.month))}
               >
                 {monthLabel(r.month)}
               </button>
@@ -418,7 +385,7 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
     try {
       const snapshot = unwrapAction(await exportStatistics(initial.venueId));
       const fresh = new Map(
-        sourceRows(snapshot, source).map((r) => [r.month, r]),
+        sourceRows(snapshot).map((r) => [r.month, r]),
       );
       const cols = table.getVisibleLeafColumns();
       const lines: unknown[][] = [
@@ -435,9 +402,6 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
                   `${labels[c.id]}: состояние`,
                 ],
           ),
-          "Источник",
-          "Снимок",
-          "Строка источника",
         ],
       ];
       for (const old of table.getSortedRowModel().rows) {
@@ -456,9 +420,6 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
               v?.state ? stateText[v.state] : null,
             ];
           }),
-          row.archive ? "Архив Glide" : "Sheerly",
-          row.archive?.captured_at ?? null,
-          row.archive?.origin.range ?? null,
         ]);
       }
       const url = URL.createObjectURL(
@@ -469,7 +430,7 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
       );
       const a = document.createElement("a");
       a.href = url;
-      a.download = `Статистика-${source === "archive" ? "архив-Glide" : "Sheerly"}${year ? `-${year}` : ""}.csv`;
+      a.download = `Статистика${year ? `-${year}` : ""}.csv`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
@@ -499,12 +460,12 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
     "turnover",
     "tips_total",
     "parking",
-    source === "archive" ? "alcoholRevenue" : "checks",
+    "checks",
   ];
   const reportErrors =
-    source === "native" ? data.reports.filter((r) => r.state === "error") : [];
+    data.reports.filter((r) => r.state === "error");
   const reportsButton =
-    source === "native" && data.reportsConfigured && can("sync") ? (
+    data.reportsConfigured && can("sync") ? (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button size="sm" disabled={reportBusy || !nativeMonths.length}>
@@ -584,26 +545,6 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
                 />
               ),
             }}
-            secondaryActions={
-              <>
-                {data.archives.length > 0 && (
-                  <TableIconButton
-                    label={
-                      source === "archive"
-                        ? "Вернуться к статистике Sheerly"
-                        : "Архив Glide"
-                    }
-                    active={source === "archive"}
-                    pressed={source === "archive"}
-                    onClick={() =>
-                      changeSource(source === "archive" ? "native" : "archive")
-                    }
-                  >
-                    <Archive />
-                  </TableIconButton>
-                )}
-              </>
-            }
             exportAction={
               can("export")
                 ? {
@@ -616,12 +557,10 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
             }
             primaryActions={
               <>
-                {source === "native" && (
-                  <Button size="sm" variant="outline" onClick={() => setPlanMonth(currentMonth)}>
-                    <Target className="size-4" />
-                    План продаж
-                  </Button>
-                )}
+                <Button size="sm" variant="outline" onClick={() => setPlanMonth(currentMonth)}>
+                  <Target className="size-4" />
+                  План продаж
+                </Button>
                 {reportsButton}
               </>
             }
@@ -653,13 +592,7 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
         )}
       </TableConditions>
 
-      {source === "archive" && (
-        <p role="status" className="text-sm text-muted-foreground">
-          Итоги из архива Glide, без пересчёта. Прочерк: значения не было в
-          источнике
-        </p>
-      )}
-      {source === "native" && !data.reportsConfigured && (
+      {!data.reportsConfigured && (
         <p className="text-sm text-muted-foreground">
           Отчёты Quick Resto по алкоголю, постоянным гостям и среднему чеку
           ещё не подключены
@@ -695,14 +628,8 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
       {!months.length ? (
         <EmptyState
           icon={ChartNoAxesCombined}
-          title={
-            source === "archive" ? "Архив пока не перенесён" : "Статистики пока нет"
-          }
-          description={
-            source === "archive"
-              ? "Вернитесь к статистике Sheerly"
-              : "Месяцы появятся, когда в «Сменах» будут рабочие дни"
-          }
+          title="Статистики пока нет"
+          description="Месяцы появятся, когда в «Сменах» будут рабочие дни"
         />
       ) : !rows.length ? (
         <EmptyState
@@ -717,8 +644,7 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
         />
       ) : (
         <>
-          {/* Источник — как вкладка: итоги всплывают и досчитываются заново. */}
-          <div key={source} className="motion-rise">
+          <div className="motion-rise">
           <MetricStrip label="Итоги за выбранные месяцы">
             {strip.map((key, i) => {
               const t = totalOf(key);
@@ -752,11 +678,7 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
             onSortingChange={changeSorting}
             sortable={sortFields}
             numeric={valueColumns}
-            onRowClick={(row) =>
-              row.original.archive
-                ? setDetail(row.original)
-                : router.push(shiftHref(row.original.month))
-            }
+            onRowClick={(row) => router.push(shiftHref(row.original.month))}
             empty={null}
             mobile={{ label: "Карточки месяцев", nameColumn: "month" }}
           />
@@ -769,70 +691,6 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
         currentMonth={currentMonth}
         onSaved={() => void reloadPlans()}
       />
-      <EditDrawer
-        open={!!detail}
-        onOpenChange={(open) => !open && setDetail(null)}
-        title={
-          shownDetail
-            ? monthLabel(shownDetail.month).replace(/^./, (c) => c.toUpperCase())
-            : "Месяц из архива"
-        }
-        titleAccessory={<DrawerStatus label="Архив Glide" tone="neutral" />}
-        description={
-          shownDetail?.archive
-            ? `Снимок ${formatDayMonth(shownDetail.archive.captured_at.slice(0, 10))} · суммы без пересчёта`
-            : undefined
-        }
-      >
-        {shownDetail?.archive && (
-          <>
-            <DrawerSummary label="Итоги месяца">
-              <DrawerSummaryTotal label={labels.turnover}>
-                <ValueText id="turnover" value={shownDetail.values.turnover?.value} />
-              </DrawerSummaryTotal>
-            </DrawerSummary>
-            <DrawerSection title="Показатели">
-              <dl className="divide-y">
-                {valueColumns
-                  .filter((key) => key !== "turnover" && key in shownDetail.values)
-                  .map((key) => (
-                    <div
-                      key={key}
-                      className="flex items-center justify-between gap-4 py-2.5 text-sm"
-                    >
-                      <dt className="text-muted-foreground">{labels[key]}</dt>
-                      <dd>
-                        <ValueText id={key} value={shownDetail.values[key]?.value} />
-                      </dd>
-                    </div>
-                  ))}
-              </dl>
-            </DrawerSection>
-            <DrawerSection title="Средний оборот по дням недели">
-              <dl className="divide-y">
-                {shownDetail.archive.weekday_turnover.map((v, i) => (
-                  <div key={i} className="flex justify-between gap-3 py-2.5 text-sm">
-                    <dt className="text-muted-foreground">{weekdays[i]}</dt>
-                    <dd>
-                      <Money value={v} />
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            </DrawerSection>
-            {shownDetail.archive.note && (
-              <DrawerSection title="Комментарий">
-                <p className="whitespace-pre-wrap break-words text-sm">
-                  {shownDetail.archive.note}
-                </p>
-              </DrawerSection>
-            )}
-            <p className="text-xs text-muted-foreground">
-              Строка архива: {shownDetail.archive.origin.range}
-            </p>
-          </>
-        )}
-      </EditDrawer>
     </PageFrame>
   );
 }

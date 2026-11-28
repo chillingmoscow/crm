@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CategoryColorPicker, CATEGORY_COLORS } from "@/components/finance/category-color";
 import { normalizePaletteColor, paletteText, type PaletteColor } from "@/lib/palette";
-import { KB_ICONS } from "@/lib/knowledge/icons";
+import { KB_PICKER_ICON_GROUPS, KB_PICKER_ICONS, type KbIcon } from "@/lib/knowledge/icons";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 
 interface KbIconPickerBodyProps {
@@ -85,32 +85,14 @@ export function KbIconPickerBody({
   // Filter иконки по запросу. Case-insensitive, по label И name.
   const filteredIcons = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return KB_ICONS;
-    return KB_ICONS.filter(
+    if (!q) return KB_PICKER_ICONS;
+    return KB_PICKER_ICONS.filter(
       (i) =>
         i.label.toLowerCase().includes(q) ||
         i.name.toLowerCase().includes(q),
     );
   }, [query]);
 
-  // Группировка для рендера без поиска: сохраняем порядок KB_ICONS,
-  // создавая массив { group, items } со стабильным insertion-order.
-  // Используется только когда query пустой (с поиском показываем
-  // плоский grid — заголовки только мешают).
-  const groupedIcons = useMemo(() => {
-    const groups: { group: string; items: typeof KB_ICONS }[] = [];
-    const indexByGroup = new Map<string, number>();
-    for (const item of KB_ICONS) {
-      let idx = indexByGroup.get(item.group);
-      if (idx === undefined) {
-        idx = groups.length;
-        indexByGroup.set(item.group, idx);
-        groups.push({ group: item.group, items: [] });
-      }
-      groups[idx].items.push(item);
-    }
-    return groups;
-  }, []);
 
   const onPickIcon = (name: string, withColor?: PaletteColor | null) => {
     const finalColor = withColor !== undefined ? withColor : pendingColor;
@@ -134,7 +116,7 @@ export function KbIconPickerBody({
 
   /** «Случайный» — и значок, и цвет (из тех, что предлагает выбор цвета). */
   const onRandom = () => {
-    const pool = filteredIcons.length > 0 ? filteredIcons : KB_ICONS;
+    const pool = filteredIcons.length > 0 ? filteredIcons : KB_PICKER_ICONS;
     const randomIcon = pool[Math.floor(Math.random() * pool.length)];
     if (!randomIcon) return;
     const picked = hideColor
@@ -152,7 +134,7 @@ export function KbIconPickerBody({
 
   const canClear = Boolean(value || color);
 
-  const renderTile = ({ name, icon: Icon, label }: (typeof KB_ICONS)[number]) => {
+  const renderTile = ({ name, icon: Icon, label }: KbIcon) => {
     const isActive = value === name;
     return (
       <button
@@ -163,8 +145,8 @@ export function KbIconPickerBody({
         aria-pressed={isActive}
         data-tip={label}
         className={cn(
-          // Плитка по ширине колонки: окно 340px — 36px, встроенный выбор в
-          // меню столбца (300px) — уже, но без наползания и прокрутки вбок.
+          // Плитка по ширине колонки: окно 292px — 36px, встроенный выбор в
+          // меню столбца — по его ширине, без наползания и прокрутки вбок.
           "flex aspect-square w-full items-center justify-center rounded-md transition-colors",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           isActive ? "bg-brand/10 ring-1 ring-inset ring-brand/40" : "hover:bg-accent",
@@ -184,7 +166,8 @@ export function KbIconPickerBody({
   // проходить Tab по всем значкам.
   return (
     <div className="flex flex-col">
-      <div className="flex flex-col gap-3 border-b p-3">
+      {/* Поля p-2, как у сетки ниже: кружки цвета стоят над колонками. */}
+      <div className="flex flex-col gap-3 border-b p-2">
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -201,6 +184,7 @@ export function KbIconPickerBody({
             value={pendingColor}
             onChange={onPickColor}
             ringOffsetClassName="ring-offset-popover"
+            grid
           />
         )}
       </div>
@@ -233,15 +217,15 @@ export function KbIconPickerBody({
             Ничего не найдено
           </p>
         ) : query.trim() ? (
-          <div className="grid grid-cols-8 gap-1">{filteredIcons.map(renderTile)}</div>
+          <div className="grid grid-cols-7 gap-1">{filteredIcons.map(renderTile)}</div>
         ) : (
           <div className="flex flex-col gap-2">
-            {groupedIcons.map(({ group, items }) => (
+            {KB_PICKER_ICON_GROUPS.map(({ group, items }) => (
               <div key={group} className="flex flex-col gap-1">
                 <div className="sticky top-0 z-10 bg-popover px-1 py-1 text-xs font-medium text-muted-foreground">
                   {group}
                 </div>
-                <div className="grid grid-cols-8 gap-1">{items.map(renderTile)}</div>
+                <div className="grid grid-cols-7 gap-1">{items.map(renderTile)}</div>
               </div>
             ))}
           </div>
@@ -302,7 +286,7 @@ export function KbIconPicker({
         align="start"
         side="bottom"
         sideOffset={6}
-        className="w-[340px] p-0"
+        className="w-[292px] p-0"
       >
         <KbIconPickerBody
           value={value}

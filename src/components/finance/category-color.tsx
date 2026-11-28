@@ -86,6 +86,7 @@ export function CategoryColorPicker({
   onChange,
   disabled,
   ringOffsetClassName = "ring-offset-background",
+  grid = false,
 }: {
   value: string | null;
   onChange: (value: string | null) => void;
@@ -94,6 +95,9 @@ export function CategoryColorPicker({
    *  (во всплывающем окне — `ring-offset-popover`, иначе в тёмной теме
    *  вокруг кружка тёмный ободок). */
   ringOffsetClassName?: string;
+  /** Кружки по сетке в 7 колонок (окно выбора значка: цвета над теми же
+   *  колонками, что значки), а не потоком с переносом. */
+  grid?: boolean;
 }) {
   const current = normalizePaletteColor(value);
   return (
@@ -110,7 +114,7 @@ export function CategoryColorPicker({
           </button>
         ) : null}
       </div>
-      <div className="flex flex-wrap gap-2 p-0.5">
+      <div className={grid ? "grid grid-cols-7 justify-items-center gap-1" : "flex flex-wrap gap-2 p-0.5"}>
         {CATEGORY_COLORS.map((color) => {
           const selected = current === color.name;
           return (

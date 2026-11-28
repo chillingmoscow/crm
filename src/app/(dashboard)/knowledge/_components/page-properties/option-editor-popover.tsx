@@ -31,13 +31,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { fieldFocusClass } from "@/components/ui/field-styles";
 import { Switch } from "@/components/ui/switch";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { PALETTE_GRID, paletteDot } from "@/lib/palette";
+import { PALETTE_GRID } from "@/lib/palette";
+import { ColorDot } from "@/components/ui/color-dot";
 import { KB_PROPERTY_UI_ICONS } from "@/components/knowledge/property-ui-icons";
 import { unitSuffix, type Unit } from "@/lib/units";
 import type { KbProperty, KbPropertyColor, KbPropertyType } from "@/types/knowledge";
@@ -131,10 +134,33 @@ export function PropertyEditorPopover({
   // Закрытие поповера (клик мимо / Esc) — сбрасываем несохранённый
   // draft описания в проп, чтобы не требовать Enter.
   const handleOpenChange = (next: boolean) => {
-    if (!next && descDraft !== (property.description ?? "")) {
+    if (!next && !descCancelRef.current && descDraft !== (property.description ?? "")) {
       onChangeDescription(descDraft);
     }
+    descCancelRef.current = false;
+    if (next) nameCancelRef.current = false;
     onOpenChange?.(next);
+  };
+
+  // Esc — отмена правки в поле, а не сохранение. Radix ловит Esc раньше
+  // поля и закрывает окно: без этого blur названия переименовывал свойство,
+  // а описание (оно пишется на ходу) оставалось с введённым текстом.
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
+  const nameCancelRef = useRef(false);
+  const descOriginRef = useRef<string | null>(null);
+  const descCancelRef = useRef(false);
+  const handleEscape = () => {
+    const el = document.activeElement;
+    if (el && el === nameInputRef.current) {
+      nameCancelRef.current = true;
+      setNameDraft(property.name);
+    }
+    if (el && el === descRef.current && descOriginRef.current !== null) {
+      descCancelRef.current = true;
+      const origin = descOriginRef.current;
+      setDescDraft(origin);
+      if (origin !== (property.description ?? "")) onChangeDescription(origin);
+    }
   };
 
   // ── Options DnD ─────────────────────────────────────────────────────
@@ -287,20 +313,28 @@ export function PropertyEditorPopover({
       <PopoverContent
         align="start"
         sideOffset={6}
-        className="w-[244px] overflow-hidden rounded-xl p-0"
+        onEscapeKeyDown={handleEscape}
+        // Длинный список вариантов не должен уводить низ окна за экран.
+        className="w-64 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto overscroll-contain p-1"
       >
         {/* ── Header: icon · name · description ──────────────────────── */}
-        <div className="flex items-center gap-2 px-2.5 pt-2.5 pb-2">
+        <div className="flex items-center gap-2 p-1.5 pb-2">
           <PropertyIconButton
             property={property}
             canEdit={canEdit}
             onChangeIcon={onChangeIcon}
           />
           <div className="relative min-w-0 flex-1">
-            <input
+            <Input
+              ref={nameInputRef}
               value={nameDraft}
               onChange={(e) => setNameDraft(e.target.value)}
               onBlur={() => {
+                if (nameCancelRef.current) {
+                  nameCancelRef.current = false;
+                  setNameDraft(property.name);
+                  return;
+                }
                 const t = nameDraft.trim();
                 if (t && t !== property.name) onRename(t);
               }}
@@ -318,31 +352,34 @@ export function PropertyEditorPopover({
               }}
               placeholder="Имя свойства"
               aria-label="Имя свойства"
-              className="h-8 w-full rounded-md border border-input bg-transparent pl-2 pr-10 text-[13px] text-foreground outline-none focus:border-brand focus:ring-2 focus:ring-brand/30 placeholder:text-muted-foreground/50"
+              className="h-9 pl-2.5 pr-10"
             />
             <button
               type="button"
               aria-label="Описание свойства"
               onClick={() => setDescOpen((v) => !v)}
               className={cn(
-                "absolute right-1 top-1/2 size-6 -translate-y-1/2 inline-flex items-center justify-center rounded-full transition-colors",
+                "absolute right-1.5 top-1/2 size-7 -translate-y-1/2 inline-flex items-center justify-center rounded-md transition-colors",
                 descOpen
-                  ? "bg-foreground/10 text-foreground"
-                  : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground",
+                  ? "bg-accent text-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground",
               )}
             >
-              <KB_PROPERTY_UI_ICONS.description className="size-3.5" />
+              <KB_PROPERTY_UI_ICONS.description className="size-4" />
             </button>
           </div>
         </div>
 
         {descOpen && (
-          <div className="px-2.5 pb-2">
+          <div className="px-1.5 pb-2">
             <textarea
               ref={descRef}
               autoFocus
               rows={1}
               value={descDraft}
+              onFocus={() => {
+                descOriginRef.current = descDraft;
+              }}
               onChange={(e) => {
                 setDescDraft(e.target.value);
                 onChangeDescription(e.target.value);
@@ -353,19 +390,15 @@ export function PropertyEditorPopover({
                   e.preventDefault();
                   setDescOpen(false);
                 }
-                if (e.key === "Escape") {
-                  setDescDraft(property.description ?? "");
-                  onChangeDescription(property.description ?? "");
-                  setDescOpen(false);
-                }
+                // Esc отменяет правку в handleEscape (окно закрывается).
               }}
               placeholder="Добавить описание…"
               aria-label="Описание свойства"
-              className="w-full resize-none overflow-hidden rounded-md border
-                         border-input bg-transparent px-2 py-1.5 text-[13px]
-                         leading-snug text-muted-foreground outline-none
-                         focus:border-brand focus:ring-2 focus:ring-brand/30
-                         placeholder:text-muted-foreground/40"
+              className={cn(
+                "w-full resize-none overflow-hidden rounded-md border border-input bg-background px-2.5 py-2 text-base leading-snug md:text-sm",
+                "placeholder:text-muted-foreground",
+                fieldFocusClass,
+              )}
             />
           </div>
         )}
@@ -375,16 +408,15 @@ export function PropertyEditorPopover({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className="flex w-full items-center justify-between px-2.5 py-1.5
-                         text-[13px] transition-colors hover:bg-accent"
+              className={PROPERTY_EDITOR_ROW}
             >
               <span className="flex items-center gap-2.5 text-muted-foreground">
-                <KB_PROPERTY_UI_ICONS.changeType className="size-4 text-muted-foreground/70" />
+                <KB_PROPERTY_UI_ICONS.changeType className="size-4 text-muted-foreground" />
                 Тип
               </span>
               <span className="flex items-center gap-1 text-foreground">
                 {TYPE_LABELS[property.type]}
-                <ChevronRight className="size-3.5 text-muted-foreground/50" />
+                <ChevronRight className="size-4 text-muted-foreground" />
               </span>
             </button>
           </DropdownMenuTrigger>
@@ -398,10 +430,10 @@ export function PropertyEditorPopover({
                   disabled={isCurrent}
                   onSelect={() => onChangeType(t)}
                 >
-                  <TIcon className="size-3.5 text-muted-foreground" />
+                  <TIcon className="size-4 text-muted-foreground" />
                   {TYPE_LABELS[t]}
                   {isCurrent && (
-                    <Check className="ml-auto size-3.5 text-muted-foreground/60" />
+                    <Check className="ml-auto size-3.5" />
                   )}
                 </DropdownMenuItem>
               );
@@ -423,7 +455,7 @@ export function PropertyEditorPopover({
         {/* ── Per-type params ─────────────────────────────────────────── */}
         <div className="py-1">
           {isOptionType && (
-            <div className="px-2.5 py-1">
+            <div className="px-1.5 py-1">
               <SectionLabel>Варианты</SectionLabel>
               <DndContext
                 sensors={sensors}
@@ -451,7 +483,7 @@ export function PropertyEditorPopover({
                 </SortableContext>
               </DndContext>
               {adding || options.length === 0 ? (
-                <input
+                <Input
                   autoFocus
                   value={optDraft}
                   onChange={(e) => setOptDraft(e.target.value)}
@@ -466,19 +498,17 @@ export function PropertyEditorPopover({
                     }
                   }}
                   placeholder="Новый вариант"
-                  className="mt-1.5 h-8 w-full rounded-lg bg-muted/50 px-2.5 text-[13px]
-                             outline-none ring-brand/30 transition-shadow
-                             focus:bg-transparent focus:ring-2"
+                  className="mt-1.5 h-9"
                 />
               ) : (
                 <button
                   type="button"
                   onClick={() => setAdding(true)}
-                  className="mt-1 flex w-full items-center gap-2 rounded-md px-1.5 py-1.5
-                             text-[13px] font-medium text-brand transition-colors
-                             hover:bg-brand/[0.08]"
+                  className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5
+                             text-sm font-medium text-brand transition-colors
+                             hover:bg-brand/10"
                 >
-                  <Plus className="size-3.5" />
+                  <Plus className="size-4" />
                   Добавить вариант
                 </button>
               )}
@@ -487,7 +517,7 @@ export function PropertyEditorPopover({
 
           {property.type === "number" && (
             <div className="flex flex-col gap-1">
-              <div className="px-2.5 py-1">
+              <div className="px-1.5 py-1">
                 <ViewCards
                   value={numberView}
                   onChange={(v) =>
@@ -511,16 +541,15 @@ export function PropertyEditorPopover({
                     <DropdownMenuTrigger asChild>
                       <button
                         type="button"
-                        className="flex w-full items-center justify-between px-2.5 py-1.5
-                                   text-[13px] transition-colors hover:bg-accent"
+                        className={PROPERTY_EDITOR_ROW}
                       >
                         <span className="flex items-center gap-2.5 text-muted-foreground">
-                          <KB_PROPERTY_UI_ICONS.unit className="size-4 text-muted-foreground/70" />
+                          <KB_PROPERTY_UI_ICONS.unit className="size-4 text-muted-foreground" />
                           Единицы
                         </span>
                         <span className="flex items-center gap-1 text-foreground">
                           {unitLabel}
-                          <ChevronRight className="size-3.5 text-muted-foreground/50" />
+                          <ChevronRight className="size-4 text-muted-foreground" />
                         </span>
                       </button>
                     </DropdownMenuTrigger>
@@ -572,7 +601,7 @@ export function PropertyEditorPopover({
           )}
 
           {property.type === "checkbox" && (
-            <div className="px-2.5 py-1">
+            <div className="px-1.5 py-1">
               <ViewCards
                 value={property.displayVariant ?? "checkbox"}
                 onChange={(v) =>
@@ -598,7 +627,7 @@ export function PropertyEditorPopover({
 
           {property.type === "rating" && (
             <div className="flex flex-col gap-1">
-              <div className="px-2.5 py-1">
+              <div className="px-1.5 py-1">
                 <ViewCards
                   value={property.displayVariant ?? "stars"}
                   onChange={(v) =>
@@ -643,7 +672,7 @@ export function PropertyEditorPopover({
           )}
 
           {property.type === "text" && (
-            <div className="flex w-full items-center justify-between px-2.5 py-1.5 text-[13px]">
+            <div className={PROPERTY_EDITOR_STATIC_ROW}>
               <span className="text-muted-foreground">Сворачивать</span>
               <Switch
                 checked={property.collapsed === true}
@@ -653,7 +682,7 @@ export function PropertyEditorPopover({
           )}
 
           {property.type === "url" && (
-            <div className="flex w-full items-center justify-between px-2.5 py-1.5 text-[13px]">
+            <div className={PROPERTY_EDITOR_STATIC_ROW}>
               <span className="text-muted-foreground">Сокращать ссылку</span>
               <Switch
                 checked={property.urlCollapsed === true}
@@ -677,6 +706,14 @@ export function PropertyEditorPopover({
 /** @deprecated Use PropertyEditorPopover instead. Kept for backwards compatibility. */
 export { PropertyEditorPopover as OptionEditorPopover };
 
+// ── Строки окна свойства ──────────────────────────────────────────────────────
+// Как пункт меню по DS: 14 / 400, радиус 6, значок 16 серый. Окно — p-1, строки
+// внутри него с отступом, подсветка не упирается в края окна.
+const PROPERTY_EDITOR_ROW =
+  "flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:outline-none data-[state=open]:bg-accent";
+const PROPERTY_EDITOR_STATIC_ROW =
+  "flex w-full items-center justify-between gap-2 px-2 py-1.5 text-sm";
+
 // ── Section label (без uppercase — sentence-case, по просьбе юзера) ──────────
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -699,16 +736,15 @@ function ScaleDropdownRow({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="flex w-full items-center justify-between px-2.5 py-1.5
-                     text-[13px] transition-colors hover:bg-accent"
+          className={PROPERTY_EDITOR_ROW}
         >
           <span className="flex items-center gap-2.5 text-muted-foreground">
-            <KB_PROPERTY_UI_ICONS.scale className="size-4 text-muted-foreground/70" />
+            <KB_PROPERTY_UI_ICONS.scale className="size-4 text-muted-foreground" />
             Шкала
           </span>
           <span className="flex items-center gap-1 text-foreground">
             {current}
-            <ChevronRight className="size-3.5 text-muted-foreground/50" />
+            <ChevronRight className="size-4 text-muted-foreground" />
           </span>
         </button>
       </DropdownMenuTrigger>
@@ -723,7 +759,7 @@ function ScaleDropdownRow({
             >
               {n}
               {isCurrent && (
-                <Check className="ml-auto size-3.5 text-muted-foreground/60" />
+                <Check className="ml-auto size-3.5" />
               )}
             </DropdownMenuItem>
           );
@@ -744,9 +780,9 @@ function SliderMaxRow({
   onCommit: (v: string) => void;
 }) {
   return (
-    <div className="flex w-full items-center justify-between px-2.5 py-1.5 text-[13px]">
-      <span className="text-muted-foreground">Максимальное значение</span>
-      <input
+    <div className={PROPERTY_EDITOR_STATIC_ROW}>
+      <span className="text-muted-foreground">Максимум</span>
+      <Input
         type="number"
         min={1}
         value={value}
@@ -759,9 +795,7 @@ function SliderMaxRow({
             e.currentTarget.blur();
           }
         }}
-        className="w-14 h-7 rounded-md border border-input bg-transparent px-2 text-right
-                   text-[13px] text-foreground outline-none
-                   focus:border-brand focus:ring-2 focus:ring-brand/30
+        className="h-9 w-16 px-2.5 text-right
                    [appearance:textfield]
                    [&::-webkit-outer-spin-button]:appearance-none
                    [&::-webkit-inner-spin-button]:appearance-none"
@@ -780,7 +814,7 @@ function ShowValueRow({
   onCheckedChange: (v: boolean) => void;
 }) {
   return (
-    <div className="flex w-full items-center justify-between px-2.5 py-1.5 text-[13px]">
+    <div className={PROPERTY_EDITOR_STATIC_ROW}>
       <span className="text-muted-foreground">Показывать число</span>
       <Switch checked={checked} onCheckedChange={onCheckedChange} />
     </div>
@@ -803,31 +837,23 @@ function ColorRow({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="flex w-full items-center justify-between px-2.5 py-1.5
-                     text-[13px] transition-colors hover:bg-accent"
+          className={PROPERTY_EDITOR_ROW}
         >
           <span className="flex items-center gap-2.5 text-muted-foreground">
-            <KB_PROPERTY_UI_ICONS.color className="size-4 text-muted-foreground/70" />
+            <KB_PROPERTY_UI_ICONS.color className="size-4 text-muted-foreground" />
             Цвет
           </span>
           <span className="flex items-center gap-1.5 text-foreground">
-            <span
-              className={cn(
-                "size-3.5 shrink-0 rounded-full",
-                currentName === "default"
-                  ? "bg-muted"
-                  : paletteDot(currentName),
-              )}
-            />
+            <ColorDot color={currentName} size="md" />
             {currentLabel}
-            <ChevronRight className="size-3.5 text-muted-foreground/50" />
+            <ChevronRight className="size-4 text-muted-foreground" />
           </span>
         </button>
       </PopoverTrigger>
       <PopoverContent
         align="end"
         sideOffset={6}
-        className="w-[200px] p-1.5 rounded-[10px]"
+        className="w-56 p-1"
       >
         {PALETTE_GRID.map((c) => {
           const isCurrent = currentName === c.name;
@@ -836,20 +862,16 @@ function ColorRow({
               key={c.name}
               type="button"
               onClick={() => onChange(c.name === "default" ? null : c.name)}
-              className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5
-                         text-[13px] transition-colors hover:bg-accent"
+              className={cn(
+                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
+                "hover:bg-accent focus-visible:bg-accent focus-visible:outline-none",
+                isCurrent && "bg-accent",
+              )}
             >
-              <span
-                className={cn(
-                  "size-4 shrink-0 rounded-full",
-                  c.name === "default"
-                    ? "bg-muted"
-                    : paletteDot(c.name),
-                )}
-              />
+              <ColorDot color={c.name} size="md" />
               <span className="flex-1 text-left">{c.label}</span>
               {isCurrent && (
-                <Check className="size-3.5 text-muted-foreground/60" />
+                <Check className="size-3.5" />
               )}
             </button>
           );
@@ -882,23 +904,22 @@ function ViewCards({
             type="button"
             onClick={() => !isCurrent && onChange(opt.value)}
             className={cn(
-              "flex flex-col items-center gap-2 rounded-lg border px-2 pt-3 pb-2",
-              "transition-[border-color,background-color,transform] active:scale-[0.98]",
+              // Плитки вида — как «Таблица / Список» в коллекции (DS).
+              "flex flex-col items-center gap-2 rounded-lg border px-2 pt-3 pb-2 transition-colors",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               isCurrent
-                ? "border-brand bg-brand/10 ring-1 ring-brand/40"
-                : "border-border hover:border-foreground/25 hover:bg-accent",
+                ? "border-brand bg-brand/10"
+                : "border-border hover:bg-accent",
             )}
             aria-pressed={isCurrent}
           >
-            <span className="flex h-6 items-center justify-center text-foreground/80">
+            <span className="flex h-6 items-center justify-center text-foreground">
               {opt.glyph}
             </span>
             <span
               className={cn(
-                "text-xs leading-none",
-                isCurrent
-                  ? "font-medium text-brand"
-                  : "text-muted-foreground",
+                "text-[13px] font-medium leading-none",
+                isCurrent ? "text-brand" : "text-muted-foreground",
               )}
             >
               {opt.label}
@@ -933,16 +954,15 @@ function RoundingDropdownRow({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="flex w-full items-center justify-between px-2.5 py-1.5
-                     text-[13px] transition-colors hover:bg-accent"
+          className={PROPERTY_EDITOR_ROW}
         >
           <span className="flex items-center gap-2.5 text-muted-foreground">
-            <KB_PROPERTY_UI_ICONS.rounding className="size-4 text-muted-foreground/70" />
+            <KB_PROPERTY_UI_ICONS.rounding className="size-4 text-muted-foreground" />
             Округление
           </span>
           <span className="flex items-center gap-1 text-foreground">
             {currentLabel}
-            <ChevronRight className="size-3.5 text-muted-foreground/50" />
+            <ChevronRight className="size-4 text-muted-foreground" />
           </span>
         </button>
       </DropdownMenuTrigger>
@@ -957,7 +977,7 @@ function RoundingDropdownRow({
             >
               {o.label}
               {isCurrent && (
-                <Check className="ml-auto size-3.5 text-muted-foreground/60" />
+                <Check className="ml-auto size-3.5" />
               )}
             </DropdownMenuItem>
           );
@@ -991,16 +1011,15 @@ function DateFormatDropdownRow({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="flex w-full items-center justify-between px-2.5 py-1.5
-                     text-[13px] transition-colors hover:bg-accent"
+          className={PROPERTY_EDITOR_ROW}
         >
           <span className="flex items-center gap-2.5 text-muted-foreground">
-            <KB_PROPERTY_UI_ICONS.dateFormat className="size-4 text-muted-foreground/70" />
+            <KB_PROPERTY_UI_ICONS.dateFormat className="size-4 text-muted-foreground" />
             Формат
           </span>
           <span className="flex items-center gap-1 text-foreground">
             {currentLabel}
-            <ChevronRight className="size-3.5 text-muted-foreground/50" />
+            <ChevronRight className="size-4 text-muted-foreground" />
           </span>
         </button>
       </DropdownMenuTrigger>
@@ -1015,7 +1034,7 @@ function DateFormatDropdownRow({
             >
               {o.label}
               {isCurrent && (
-                <Check className="ml-auto size-3.5 text-muted-foreground/60" />
+                <Check className="ml-auto size-3.5" />
               )}
             </DropdownMenuItem>
           );
@@ -1049,16 +1068,15 @@ function OptionSortDropdownRow({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="flex w-full items-center justify-between px-2.5 py-1.5
-                     text-[13px] transition-colors hover:bg-accent"
+          className={PROPERTY_EDITOR_ROW}
         >
           <span className="flex items-center gap-2.5 text-muted-foreground">
-            <KB_PROPERTY_UI_ICONS.sort className="size-4 text-muted-foreground/70" />
+            <KB_PROPERTY_UI_ICONS.sort className="size-4 text-muted-foreground" />
             Сортировка
           </span>
           <span className="flex items-center gap-1 text-foreground">
             {currentLabel}
-            <ChevronRight className="size-3.5 text-muted-foreground/50" />
+            <ChevronRight className="size-4 text-muted-foreground" />
           </span>
         </button>
       </DropdownMenuTrigger>
@@ -1073,7 +1091,7 @@ function OptionSortDropdownRow({
             >
               {o.label}
               {isCurrent && (
-                <Check className="ml-auto size-3.5 text-muted-foreground/60" />
+                <Check className="ml-auto size-3.5" />
               )}
             </DropdownMenuItem>
           );
@@ -1086,7 +1104,7 @@ function OptionSortDropdownRow({
 // ── Tiny graphics for ViewCards ─────────────────────────────────────────────
 function NumberGlyph() {
   return (
-    <span className="text-[17px] font-semibold tabular-nums tracking-tight">
+    <span className="text-base font-semibold tabular-nums">
       42
     </span>
   );
@@ -1113,7 +1131,7 @@ function SliderGlyph() {
 
 function CheckboxGlyph() {
   return (
-    <span className="inline-flex size-[18px] items-center justify-center rounded-[5px] bg-brand text-white">
+    <span className="inline-flex size-4 items-center justify-center rounded bg-brand text-white">
       <Check className="size-3" strokeWidth={3} />
     </span>
   );
@@ -1121,8 +1139,8 @@ function CheckboxGlyph() {
 
 function SwitchGlyph() {
   return (
-    <span className="relative block h-[18px] w-7 rounded-full bg-brand">
-      <span className="absolute right-0.5 top-1/2 size-3.5 -translate-y-1/2 rounded-full bg-white shadow-sm" />
+    <span className="relative block h-4 w-7 rounded-full bg-brand">
+      <span className="absolute right-0.5 top-1/2 size-3 -translate-y-1/2 rounded-full bg-white shadow-sm" />
     </span>
   );
 }
@@ -1160,12 +1178,12 @@ function OptionRow({
       <button
         type="button"
         aria-label="Перетащить вариант"
-        className="size-5 inline-flex items-center justify-center text-muted-foreground/40
+        className="size-5 inline-flex items-center justify-center rounded-sm text-muted-foreground hover:bg-background
                    cursor-grab active:cursor-grabbing hover:text-foreground"
         {...attributes}
         {...listeners}
       >
-        <GripVertical className="size-3.5" />
+        <GripVertical className="size-4" />
       </button>
       {description?.trim() ? (
         <Tooltip>

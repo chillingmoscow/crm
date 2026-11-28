@@ -4,13 +4,14 @@ import type { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import { softDeleteKbPage, restoreKbPage } from "@/lib/knowledge/pages";
+import { kbToastTitle } from "@/lib/knowledge/toast-title";
 
 type Router = ReturnType<typeof useRouter>;
 
 /**
  * Soft-delete страницы БЕЗ confirm-диалога: удаление обратимо (страница
  * уходит в корзину, не стирается), поэтому подтверждение лишнее. Вместо
- * него — destructive-toast сверху с действием «Отменить» (cascade
+ * него — обычное уведомление сверху с действием «Отменить» (cascade
  * restore через kb_restore_cascade). Notion-паттерн.
  *
  * `redirectToIndex` (default true): после удаления уводим на /knowledge
@@ -37,11 +38,12 @@ export async function softDeletePageWithUndo({
   }
 
   const title = pageTitle?.trim() || "Без названия";
-  toast.error(`«${title}» перемещена в корзину`, {
+  // Обычное уведомление, не ошибка: удаление обратимо. Одна строка —
+  // длинное название сокращаем, «Восстановить можно из корзины» не пишем:
+  // для этого есть «Отменить» (замечание владельца 28.11.2026).
+  toast(`«${kbToastTitle(title)}» в корзине`, {
     description:
-      childCount > 0
-        ? `Вместе с вложенными страницами (${childCount}).`
-        : "Восстановить можно из корзины.",
+      childCount > 0 ? `Вместе с вложенными страницами: ${childCount}` : undefined,
     action: {
       label: "Отменить",
       onClick: async () => {
@@ -50,7 +52,7 @@ export async function softDeletePageWithUndo({
           toast.error(`Не удалось восстановить: ${restoreError}`);
           return;
         }
-        toast.success(`«${title}» восстановлена`);
+        toast.success(`«${kbToastTitle(title)}» восстановлена`);
         router.refresh();
       },
     },

@@ -743,23 +743,42 @@ input:-webkit-autofill {
      оказываются на baseline первой строки текста, а не парят над. */
   align-items: flex-start;
   gap: 10px;
-  /* Кнопки 20px по середине первой строки абзаца (строка 27px, текст
-     начинается на 1px ниже верха меню): (27 − 20) / 2 + 1 ≈ 5px.
-     Пока правило проигрывало центрированию BN, тут стояло 9px. */
-  padding-top: 5px;
+  /* Кнопки 20px по середине первой строки абзаца: у блока сверху 9px,
+     строка 16 × 1.7 ≈ 27px → центр на 22.6px, кнопке — 22.6 − 10 ≈ 13px.
+     Прежние 5px считались от пункта списка, и у абзаца кнопки висели на
+     8px выше строки (замечание владельца 28.11.2026). */
+  padding-top: 13px;
   transform: translateX(-14px);
 }
-/* H1/H2/H3 имеют heading-padding 22px (см. правило выше) — копируем
-   эту цифру в side-menu, плюс небольшой visual offset чтобы кнопки
-   стояли по центру первой строки заголовка, а не к её верху. */
+/* Пункты списков: сверху 2px → центр строки на 15.6px, кнопке ≈ 6px.
+   Переключаемый список (toggle) этого отступа не получает — у него 9px,
+   как у абзаца. */
+.bn-sheerly .bn-side-menu[data-block-type="bulletListItem"],
+.bn-sheerly .bn-side-menu[data-block-type="numberedListItem"],
+.bn-sheerly .bn-side-menu[data-block-type="checkListItem"] {
+  padding-top: 6px;
+}
+/* Заголовки: сверху 22px, строка --level × 1.7 → 22 + строка / 2 − 10. */
 .bn-sheerly .bn-side-menu[data-block-type="heading"][data-level="1"] {
-  padding-top: 32px;
+  padding-top: 36px;
 }
 .bn-sheerly .bn-side-menu[data-block-type="heading"][data-level="2"] {
   padding-top: 29px;
 }
 .bn-sheerly .bn-side-menu[data-block-type="heading"][data-level="3"] {
   padding-top: 26px;
+}
+/* Блоки со своим внутренним отступом — по первой строке текста внутри:
+   выноска (py-3, строка ≈ 26px) — центр ≈ 34px; таблица (обёртка 9px +
+   ячейка 5px) — ≈ 37px; код (поле 24px сверху у pre) — ≈ 46px. */
+.bn-sheerly .bn-side-menu[data-block-type="callout"] {
+  padding-top: 24px;
+}
+.bn-sheerly .bn-side-menu[data-block-type="table"] {
+  padding-top: 27px;
+}
+.bn-sheerly .bn-side-menu[data-block-type="codeBlock"] {
+  padding-top: 36px;
 }
 
 /* «+» и ручка — одинаковые: 20px, значок 16px серым, при наведении
@@ -963,6 +982,25 @@ input:-webkit-autofill {
   > .flex-1
   > div:nth-child(2) {
   display: none !important;
+}
+
+/* Внутренние блоки пункта (заголовок, подпись) BN помечает тем же классом
+ * `bn-suggestion-menu-item`, и отступ 8×12 ложился на них второй раз:
+ * пункт «@» вырастал до 66px. Отступ — только у самого пункта; пустая
+ * вторая строка места не занимает. */
+.bn-suggestion-menu .bn-suggestion-menu-item .bn-suggestion-menu-item {
+  padding: 0 !important;
+}
+.bn-suggestion-menu .bn-suggestion-menu-item > .flex-1 > div:empty {
+  display: none !important;
+}
+
+/* Меню «@»: слева аватар 20px (значок страницы — 16px). */
+.bn-suggestion-menu.kb-mention-menu
+  .bn-suggestion-menu-item
+  > div[data-position="left"] {
+  width: 20px !important;
+  height: 20px !important;
 }
 
 /* Шорткат-подсказка (badge «⌘⇧6» и т.п.) — BN-shadcn рендерит её как

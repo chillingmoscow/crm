@@ -104,7 +104,7 @@ interface KbPageEditorProps {
   pageId: string;
   /** Сразу под заголовком, до свойств: плашка обязательного чтения. */
   afterTitle?: ReactNode;
-  /** После текста, до обсуждения: «Подстраницы». */
+  /** После текста: «Подстраницы». */
   afterContent?: ReactNode;
   initialTitle: string;
   initialIcon: string | null;
@@ -396,6 +396,23 @@ export function KbPageEditor({
         />
       )}
 
+      {/* Обсуждение страницы — над текстом, под свойствами (решение
+          владельца 28.11.2026: открыл страницу — видишь, на что ответить;
+          без комментариев — одна строка «Написать комментарий…»). Render-gate
+          внутри: если у юзера НЕТ kb.comment_pages И комментариев нет —
+          компонент не рендерится. inline-comments (через ThreadStore)
+          работают независимо в KbBlockNoteEditor ниже. */}
+      {accountId && userId && (
+        <KbPageComments
+          pageId={pageId}
+          userId={userId}
+          currentUserName={currentUserName}
+          currentUserAvatarUrl={currentUserAvatarUrl}
+          canComment={canComment}
+          canEdit={canEdit}
+        />
+      )}
+
       {/* Editor surface — обёрнут в KbMentionResolutionProvider, чтобы
           render kbPageMention chip'а мог отличить slug, ведущий на
           живую страницу, от slug'а в корзине / удалённого. Provider
@@ -477,23 +494,6 @@ export function KbPageEditor({
       </KbMentionResolutionProvider>
 
       {afterContent}
-
-      {/* Обсуждение страницы — под текстом и подстраницами (решение
-          редизайна 27.11.2026: раньше стояло между свойствами и текстом и
-          отодвигало сам документ). Render-gate
-          внутри: если у юзера НЕТ kb.comment_pages И комментариев нет —
-          компонент не рендерится. inline-comments (через ThreadStore)
-          работают независимо в KbBlockNoteEditor ниже. */}
-      {accountId && userId && (
-        <KbPageComments
-          pageId={pageId}
-          userId={userId}
-          currentUserName={currentUserName}
-          currentUserAvatarUrl={currentUserAvatarUrl}
-          canComment={canComment}
-          canEdit={canEdit}
-        />
-      )}
     </div>
   );
 }

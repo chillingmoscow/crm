@@ -90,7 +90,7 @@ export function DateValueControl({
         <button
           type="button"
           className="min-h-7 inline-flex items-center text-left text-[13px] tabular-nums
-                     rounded px-1 transition-colors
+                     rounded transition-colors
                      text-muted-foreground/50 data-[has-value=true]:text-foreground"
           data-has-value={display ? "true" : "false"}
           aria-label="Дата"
@@ -101,9 +101,11 @@ export function DateValueControl({
       <PopoverContent
         align="start"
         sideOffset={6}
-        className="w-auto p-3 rounded-xl"
+        className="w-auto p-3"
       >
-        <div className="flex flex-wrap items-center gap-1.5 pb-2">
+        {/* Быстрые кнопки — ровно по ширине календаря (w-0 min-w-full:
+            ширину окна задаёт сетка дат, а не этот ряд). */}
+        <div className="flex w-0 min-w-full flex-wrap gap-1 pb-2">
           {QUICK.map((q) => (
             <button
               key={q.kind}
@@ -112,8 +114,9 @@ export function DateValueControl({
                 commitDate(quickDateISO(q.kind));
                 setOpen(false);
               }}
-              className="h-7 rounded-md bg-secondary px-2.5 text-[13px] font-medium
-                         text-foreground transition-colors hover:bg-accent"
+              className="h-7 flex-auto whitespace-nowrap rounded-md bg-secondary px-2 text-[13px] font-medium
+                         text-foreground transition-colors hover:bg-accent
+                         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {q.label}
             </button>
@@ -130,7 +133,8 @@ export function DateValueControl({
           }}
           locale={ru}
           showOutsideDays
-          className="p-0"
+          // Ячейка 36px: сетка 252px, под неё встают три быстрые кнопки.
+          className="p-0 [--cell-size:2.25rem]"
           classNames={{
             caption_label: "select-none text-sm font-semibold text-foreground",
             button_previous:

@@ -298,6 +298,7 @@ export function CollectionViewMenu({
         <span>Дублировать вид</span>
         <span />
       </button>
+      <div className="kb-collection-column-menu-separator" role="separator" />
       <button
         type="button"
         className="kb-collection-column-menu-row text-destructive"

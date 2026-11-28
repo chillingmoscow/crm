@@ -6,10 +6,24 @@ import { asLooseDb } from "@/lib/supabase/loose";
 import { financeSource } from "@/lib/sales/finance-source";
 import { cashMovementDefaults, normalizeCashMovements } from "@/lib/sales/cash-movements";
 import { addDays, businessDate } from "@/lib/sales/time";
-import { attention, closeAlert, closePlanAlerts } from "./payout-alerts";
-import { carryAlert, reconcileAlert, rub, transferAlert } from "./payout-alert-text";
+import { attention, closeAlert, closePlanAlerts, raiseAlert } from "./payout-alerts";
+import { carryAlert, kpiAlert, reconcileAlert, rub, salesPlanAlert, transferAlert } from "./payout-alert-text";
+import { permissionRecipients } from "@/lib/notifications/recipients";
+import { KPI_START } from "./kpi";
+import { kpiMonthPeople, reviewNeedsRecount, termsWithPlan } from "./kpi-month";
 import { carryItems, carryWaiting } from "./payout-carry";
-import { buildContext, cashPlan, money, payoutAudit, plan, planRows, type PayoutSourceData, type VenueHandle } from "./payout-engine";
+import {
+  buildContext,
+  cashPlan,
+  followPlanDays,
+  money,
+  payoutAudit,
+  plan,
+  planRows,
+  type PayoutSourceData,
+  type PlanRecord,
+  type VenueHandle,
+} from "./payout-engine";
 import { scheduleWindow, type PayoutNo } from "./payout-plan";
 import { reconcileDay } from "./payout-reconcile";
 import { loadVenuePayoutData } from "./payout-source";
@@ -20,6 +34,9 @@ import { loadVenuePayoutData } from "./payout-source";
 // 1. Сверка: выдача наличными за прошлые дни ↔ изъятие из кассы Quick Resto.
 // 2. Выплаты переводом: окно прошло, а выплаты за месяц нет.
 // 3. Автоперенос остатка месяца после второй выплаты.
+// 4. Дни выплат по графику: план, который ещё идёт, сверяется с расписанием
+//    (замены, пропущенная вчера выдача), чтобы главная и план с утра
+//    показывали верный день, даже если план никто не открывал.
 //
 // Что требует человека — карточка «Финансы → На разбор» и сообщение в чат
 // отчётов (один раз, когда карточка появилась). Причина ушла сама — карточка
@@ -43,6 +60,10 @@ export type CheckResult = {
   reconciled: { date: string; state: "matched" | "mismatch" }[];
   transfersMissing: number;
   carried: { planId: string; people: number; done: boolean }[];
+  /** Сколько старших ждут итогов KPI за прошлый месяц. */
+  kpiMissing: number;
+  /** Сколько строк плана перенесено на смену по графику. */
+  daysMoved: number;
   /** Сбой части проверки: причина без имён и сумм. */
   errors: string[];
   /** Проблема, о которой человек не узнает: ни карточки, ни отчёта. */
@@ -348,6 +369,136 @@ async function carry(s: VenueHandle, initial: PayoutSourceData, today: string, v
   }
 }
 
+const monthBefore = (month: string) => {
+  const d = new Date(`${month}T12:00:00Z`);
+  d.setUTCMonth(d.getUTCMonth() - 1);
+  return d.toISOString().slice(0, 10);
+};
+
+/** Колокольчик тем, кто может разобраться: один раз — когда карточка появилась. */
+async function bell(s: VenueHandle, codes: string[], n: { type: string; title: string; body: string; link: string }) {
+  try {
+    const users = await permissionRecipients(s.admin, s.venueId, codes);
+    if (!users.length) return;
+    const r = await s.admin.from("notifications").insert(users.map((user_id) => ({
+      user_id, venue_id: s.venueId, type: n.type, category: n.type.startsWith("sales.") ? "finance" : "staff",
+      title: n.title, body: n.body, link: n.link, actor_user_id: null, entity_type: "venue", entity_id: s.venueId,
+    })));
+    if (r.error) console.error(`[payroll-payout-check] ${s.venueId}: уведомление ${n.type} не записано (${r.error.message})`);
+  } catch (e) {
+    console.error(`[payroll-payout-check] ${s.venueId}: уведомление ${n.type}: ${e instanceof Error ? e.message : e}`);
+  }
+}
+
+const ym = (m: string) => m.slice(0, 7);
+const monthAfter = (month: string) => {
+  const d = new Date(`${month}T12:00:00Z`);
+  d.setUTCMonth(d.getUTCMonth() + 1);
+  return d.toISOString().slice(0, 10);
+};
+
+/**
+ * План продаж и KPI старших (KPI v2):
+ * - с 1-го — «План продаж на <месяц> не задан» про текущий месяц, с 25-го — и про
+ *   следующий; доля алкоголя нужна, если в условиях KPI месяца есть пункт плана;
+ * - с 1-го — «KPI за <прошлый месяц> не подведены», пока итог не сохранён или
+ *   не досчитан план;
+ * - карточки прошлых месяцев закрываются; колокольчик — когда карточка новая.
+ */
+async function checkPlansAndKpi(s: VenueHandle, _data: PayoutSourceData, today: string, _venueName: string, out: CheckResult) {
+  const venue = { admin: s.admin, accountId: s.accountId, venueId: s.venueId };
+  const current = `${today.slice(0, 7)}-01`;
+  const month = monthBefore(current);
+
+  // ── План продаж ──
+  const planMonths = Number(today.slice(8, 10)) >= 25 ? [current, monthAfter(current)] : [current];
+  for (const m of planMonths) {
+    const plan = await s.admin.from<{ turnover: number | null; alcohol_share: number | null }>("sales_month_plans")
+      .select("turnover,alcohol_share").eq("account_id", s.accountId).eq("venue_id", s.venueId).eq("month", m).maybeSingle();
+    if (plan.error) throw new Error(plan.error.message);
+    const people = m >= KPI_START ? await kpiMonthPeople(venue, m) : null;
+    const needsShare = people ? termsWithPlan(people.terms, people.people.map((p) => p.termsId)) : false;
+    const missing: ("turnover" | "alcohol_share")[] = [];
+    if (plan.data?.turnover == null) missing.push("turnover");
+    if (needsShare && plan.data?.alcohol_share == null) missing.push("alcohol_share");
+    if (missing.length) {
+      const text = salesPlanAlert(m, missing);
+      const raised = await raiseAlert(s, { kind: "sales_plan", key: m, businessDate: m, ...text });
+      if (raised === "failed") out.unseen = true;
+      if (raised === "created")
+        await bell(s, ["sales.plan"], { type: "sales.plan_missing", title: text.title, body: `Не хватает: ${text.lines.join(", ").toLowerCase()}`, link: `/sales/statistics?plan=${ym(m)}` });
+    } else {
+      await closeAlert(s, "sales_plan", m);
+    }
+  }
+
+  // ── KPI прошлого месяца ──
+  if (month >= KPI_START) {
+    const base = await kpiMonthPeople(venue, month);
+    // Не подведены — нет итога или итог сохранили до отчёта продаж (план не досчитан).
+    const missing = base.people.filter((p) => {
+      const review = base.reviews.get(p.employeeId);
+      return !review || reviewNeedsRecount(review, base.terms.get(p.termsId));
+    });
+    out.kpiMissing = missing.length;
+    if (missing.length) {
+      const roleIds = [...new Set(missing.map((p) => p.roleId))];
+      const roles = await s.admin.from<{ id: string; name: string }[]>("roles").select("id,name").in("id", roleIds);
+      if (roles.error) throw new Error(roles.error.message);
+      const names = new Map((roles.data ?? []).map((r) => [r.id, r.name]));
+      const text = kpiAlert(month, missing.map((p) => ({
+        name: base.employees.get(p.employeeId)?.name ?? "Сотрудник",
+        role: names.get(p.roleId) ?? "",
+        recount: base.reviews.has(p.employeeId),
+      })));
+      const raised = await raiseAlert(s, { kind: "kpi", key: month, businessDate: month, ...text });
+      if (raised === "failed") out.unseen = true;
+      if (raised === "created")
+        await bell(s, ["payroll.review", "payroll.pay"], { type: "staff.kpi_due", title: text.title, body: text.lines.join("; "), link: `/people/payroll?tab=kpi&month=${ym(month)}` });
+    } else {
+      await closeAlert(s, "kpi", month);
+    }
+  }
+
+  // ── Карточки прошлых месяцев ──
+  const open = await s.admin
+    .from<{ kind: string; key: string }[]>("payroll_payout_alerts")
+    .select("kind,key")
+    .eq("account_id", s.accountId)
+    .eq("venue_id", s.venueId)
+    .eq("status", "open")
+    .in("kind", ["kpi", "kpi_plan", "sales_plan"]);
+  if (open.error) throw new Error(open.error.message);
+  for (const a of open.data ?? []) {
+    // «План алкоголя не задан» из первой версии заменён карточкой плана продаж.
+    if (a.kind === "kpi_plan") await closeAlert(s, "kpi_plan", a.key);
+    if (a.kind === "sales_plan" && a.key < current) await closeAlert(s, "sales_plan", a.key);
+    if (a.kind === "kpi" && a.key < month) {
+      const old = await kpiMonthPeople(venue, a.key);
+      const waiting = old.people.some((p) => {
+        const review = old.reviews.get(p.employeeId);
+        return !review || reviewNeedsRecount(review, old.terms.get(p.termsId));
+      });
+      if (!waiting) await closeAlert(s, "kpi", a.key);
+    }
+  }
+}
+
+/** Идущие планы наличными: дни выплат — по текущему графику (`followPlanDays`). */
+async function followDays(s: VenueHandle, data: PayoutSourceData, today: string, _venueName: string, out: CheckResult) {
+  const plans = await s.admin
+    .from<PlanRecord[]>("payroll_payout_plans")
+    .select("id,schedule,month,payout_no,window_from,window_to,state,version")
+    .eq("account_id", s.accountId)
+    .eq("venue_id", s.venueId)
+    .neq("state", "cancelled")
+    .gte("window_to", today);
+  if (plans.error) throw new Error(plans.error.message);
+  for (const p of plans.data ?? []) {
+    out.daysMoved += await followPlanDays(s, await buildContext(s, data, p.month), p);
+  }
+}
+
 export async function runPayoutChecks(now = new Date()): Promise<CheckResult[]> {
   if (process.env.PAYROLL_PAYOUT_AUTO === "off") return [];
   const admin = asLooseDb(createAdminClient());
@@ -365,7 +516,7 @@ export async function runPayoutChecks(now = new Date()): Promise<CheckResult[]> 
   for (const v of (venues.data ?? []).filter((x) => names.has(x.venue_id))) {
     const s: VenueHandle = { db: admin, admin, accountId: v.account_id, venueId: v.venue_id };
     const venueName = names.get(v.venue_id) ?? "заведение";
-    const out: CheckResult = { venueId: v.venue_id, reconciled: [], transfersMissing: 0, carried: [], errors: [], unseen: false };
+    const out: CheckResult = { venueId: v.venue_id, reconciled: [], transfersMissing: 0, carried: [], kpiMissing: 0, daysMoved: 0, errors: [], unseen: false };
     results.push(out);
     let data: PayoutSourceData;
     let today: string;
@@ -377,7 +528,7 @@ export async function runPayoutChecks(now = new Date()): Promise<CheckResult[]> 
       continue;
     }
     // Каждая проверка — отдельно: сбой Quick Resto не мешает переносу.
-    for (const [label, step] of [["сверка", reconcile], ["переводы", checkTransfers], ["перенос", carry]] as const) {
+    for (const [label, step] of [["сверка", reconcile], ["переводы", checkTransfers], ["перенос", carry], ["планы и KPI", checkPlansAndKpi], ["дни", followDays]] as const) {
       try {
         await step(s, data, today, venueName, out);
       } catch (e) {

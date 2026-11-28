@@ -1,11 +1,21 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, Loader2, RotateCcw } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { BookCheck, Check, Loader2, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/shared/confirm-dialog";
+import { unwrapAction } from "@/lib/actions/result";
+import { requestKbReread } from "@/lib/knowledge/reading-actions";
+import { countRu } from "@/lib/format/plural";
+import { kbRereadConfirmText } from "@/lib/knowledge/reading-copy";
 import { markKbPageAsRead } from "@/lib/knowledge/required-reading";
+import { kbReadingPlate } from "@/lib/knowledge/document";
+import { formatDayMonth } from "@/lib/format/date";
+import { cn } from "@/lib/utils";
 import { useKbPageStateOverride } from "@/app/(dashboard)/knowledge/_components/kb-page-state-overrides-store";
 
 interface KbRequiredReadingBannerProps {
@@ -25,21 +35,40 @@ interface KbRequiredReadingBannerProps {
    *  на свежий per-mount таймер — повторный заход / обновление
    *  страницы не требуют вычитывать порог заново. */
   accumulatedActiveSeconds?: number;
+  /** Для руководителя с правом обязательного чтения: сколько человек
+   *  прочитали текущую версию из скольких. null — не показывать. */
+  stats?: {
+    read: number;
+    total: number;
+    /** Страницу правили после чьего-то прочтения (сводка 416). */
+    changedAfterRead: boolean;
+    /** Скольких других сбросит «Попросить перечитать» (им придёт уведомление). */
+    staleOthers: number;
+    /** У самого руководителя тоже прочитана не последняя версия. */
+    selfStale: boolean;
+  } | null;
+  /** Название страницы — для окна подтверждения. */
+  pageTitle?: string;
+  /** slug страницы — ссылка «Кто прочитал». */
+  pageSlug?: string;
+  /** Право обязательного чтения: ссылка «Кто прочитал» видна и тогда,
+   *  когда счётчика ещё нет (флаг только что включили в меню ⋯). */
+  canSeeReaders?: boolean;
 }
 
 /**
- * Edge-to-edge баннер обязательного чтения (как красная плашка
- * корзины в Notion). Состояния:
- *   1. required=false → ничего.
- *   2. readAt!=null → зелёный mini-badge «Прочитано {дата}».
- *   3. needsReread → «Страница обновлена» (RotateCcw).
- *   4. иначе → «Требуется прочтение» (AlertTriangle).
+ * Плашка обязательного чтения в колонке документа, под заголовком
+ * (состояние — `kbReadingPlate` в src/lib/knowledge/document.ts):
+ *   1. страница не обязательная → ничего;
+ *   2. прочитана → зелёная «Прочитано {дата}»;
+ *   3. изменилась после прочтения → жёлтая с RotateCcw;
+ *   4. иначе → жёлтая «Обязательно к прочтению» с BookCheck.
+ * Руководителю справа — «Прочитали N из M» и ссылка «Кто прочитал».
  *
- * Read-gate: кнопка «Прочитано» неактивна, пока суммарное активное
- * время (накопленное на сервере + добор в текущей сессии) не
- * достигнет порога (~25% времени чтения, 10–90с). Таймер на паузе
- * при скрытой вкладке. Никакого обратного отсчёта в кнопке —
- * disabled + tooltip.
+ * Кнопка «Прочитано» неактивна, пока суммарное активное время
+ * (накопленное на сервере + добор в текущей сессии) не достигнет порога
+ * (~25% времени чтения, 10–90 с); рядом — подсказка «Сначала прочитайте
+ * страницу». Таймер на паузе при скрытой вкладке.
  */
 export function KbRequiredReadingBanner({
   pageId,
@@ -48,9 +77,19 @@ export function KbRequiredReadingBanner({
   needsReread = false,
   readingMinutes = null,
   accumulatedActiveSeconds = 0,
+  stats = null,
+  canSeeReaders = false,
+  pageSlug,
+  pageTitle,
 }: KbRequiredReadingBannerProps) {
+  const router = useRouter();
+  const { confirm, dialog } = useConfirm();
   const [readAt, setReadAt] = useState<string | null>(initialReadAt);
+  // После router.refresh (например, «Попросить перечитать») сервер присылает
+  // новое значение — локальное состояние должно его подхватить.
+  useEffect(() => setReadAt(initialReadAt), [initialReadAt]);
   const [pending, setPending] = useState(false);
+  const [rereadPending, setRereadPending] = useState(false);
 
   const override = useKbPageStateOverride(pageId);
   const effectiveRequired = override?.requiredReading ?? required;
@@ -92,11 +131,39 @@ export function KbRequiredReadingBanner({
     return () => clearInterval(id);
   }, [thresholdSec]);
 
-  if (!effectiveRequired) return null;
+  const plate = kbReadingPlate({
+    required: effectiveRequired,
+    readAt,
+    // После подтверждения в этой сессии старое «нужно перечитать» снято.
+    needsReread: needsReread && !readAt,
+    gateReady,
+    changedAfterRead: stats?.changedAfterRead ?? false,
+  });
+  if (plate.kind === "none") return null;
 
-  // После подтверждения баннер просто исчезает — отдельной зелёной
-  // плашки «Прочитано» не показываем (достаточно уведомления сверху).
-  if (readAt) return null;
+  const onRequestReread = async () => {
+    const ok = await confirm({
+      title: `Попросить перечитать «${pageTitle?.trim() || "Без названия"}»?`,
+      description: kbRereadConfirmText(stats?.staleOthers ?? 0, stats?.selfStale ?? false),
+      confirmLabel: "Попросить перечитать",
+      tone: "warning",
+    });
+    if (!ok) return;
+    setRereadPending(true);
+    try {
+      const { notified } = unwrapAction(await requestKbReread(pageId));
+      toast.success(
+        notified > 0
+          ? `Попросили перечитать: ${countRu(notified, "человек", "человека", "человек")}`
+          : "Прочтения сброшены",
+      );
+      router.refresh();
+    } catch (error) {
+      toast.error((error as Error).message);
+    } finally {
+      setRereadPending(false);
+    }
+  };
 
   const onConfirm = async () => {
     setPending(true);
@@ -110,58 +177,129 @@ export function KbRequiredReadingBanner({
     toast.success("Прочтение подтверждено");
   };
 
-  const Icon = needsReread ? RotateCcw : AlertTriangle;
-  const title = needsReread ? "Страница обновлена" : "Требуется прочтение";
-  const description = needsReread
-    ? "Содержимое изменилось с момента вашего предыдущего прочтения. Ознакомьтесь с обновлениями и подтвердите заново."
-    : "Эта страница помечена как обязательная к прочтению. После того как ознакомитесь с содержимым — подтвердите прочтение.";
+  const minutes = readingMinutes !== null ? ` · ≈ ${readingMinutes} мин` : "";
 
+  const showStats = stats !== null && stats.total > 0;
+  const showReaders = (canSeeReaders || showStats) && Boolean(pageSlug);
+  const showConfirm = plate.kind === "unread";
+  const showSecondRow = showStats || showReaders || showConfirm;
+  const showGateHint = plate.kind === "unread" && !plate.canConfirm;
+  // Левая часть второй строки — только когда в ней есть что показать:
+  // пустой блок на телефоне занимал отдельную строку и давал лишний зазор.
+  const showLeft = showStats || showGateHint;
+
+  // Плашка в колонке документа: встроенное предупреждение DS (amber) или
+  // подтверждение (emerald). Раскладка постоянная — заголовок сверху, под
+  // ним строка «состояние слева, кнопки справа»: раньше один ряд с
+  // переносом перестраивался, когда появлялась статистика (сразу после
+  // включения обязательного чтения её ещё нет), и плашка «прыгала».
   return (
-    // Edge-to-edge: w-full + горизонтальный паддинг, нижний бордер,
-    // без скруглений — плашка во всю ширину области (как в Notion).
     <div
-      className="w-full border-b border-yellow-200 bg-yellow-50 px-6 py-3
-                 md:px-8 dark:border-yellow-900 dark:bg-yellow-950"
+      className={cn(
+        "flex flex-col gap-2 rounded-lg border p-3 text-sm",
+        plate.kind === "read"
+          ? "border-emerald-500/30 bg-emerald-500/10"
+          : "border-amber-500/30 bg-amber-500/10",
+      )}
     >
-      <div className="mx-auto flex w-full max-w-[1100px] flex-wrap items-center justify-center gap-x-5 gap-y-2">
-        <span className="shrink-0 inline-flex size-8 items-center justify-center rounded-full bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300">
-          <Icon className="size-4" />
+      <div className="flex min-w-0 items-center gap-2.5">
+        {plate.kind === "read" ? (
+          <Check className="size-4 shrink-0 text-emerald-700 dark:text-emerald-400" />
+        ) : plate.reread ? (
+          <RotateCcw className="size-4 shrink-0 text-amber-700 dark:text-amber-400" />
+        ) : (
+          <BookCheck className="size-4 shrink-0 text-amber-700 dark:text-amber-400" />
+        )}
+        <span className="min-w-0">
+          <span className="font-semibold">
+            {plate.kind === "read"
+              ? `Прочитано ${formatDayMonth(plate.readAt) ?? ""}`.trim()
+              : plate.reread
+                ? "Страница изменилась, прочитайте снова"
+                : "Обязательно к прочтению"}
+          </span>
+          {plate.kind === "unread" && minutes && (
+            <span className="whitespace-nowrap text-[13px] text-muted-foreground">{minutes}</span>
+          )}
         </span>
-        <div className="flex min-w-0 max-w-[680px] flex-col gap-0.5">
-          <div className="flex items-center gap-2 text-sm font-semibold text-yellow-900 dark:text-yellow-100">
-            {title}
-            {readingMinutes !== null && (
-              <span
-                className="inline-flex items-center gap-1 rounded-full bg-yellow-100 px-2 py-0.5 text-[11px] font-medium text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
-                data-tip={`Примерное время чтения: ${readingMinutes} мин`}
-              >
-                ≈ {readingMinutes} мин
+      </div>
+
+      {showSecondRow && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 sm:pl-[26px]">
+          {showLeft && (
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+            {showStats && stats && (
+              <span className="flex items-center gap-2">
+                <span className="whitespace-nowrap text-[13px] tabular-nums text-muted-foreground">
+                  Прочитали {stats.read} из {stats.total}
+                </span>
+                <span
+                  className="h-1.5 w-[90px] shrink-0 overflow-hidden rounded-full bg-brand/15"
+                  role="progressbar"
+                  aria-label="Прочитали"
+                  aria-valuenow={stats.read}
+                  aria-valuemin={0}
+                  aria-valuemax={stats.total}
+                >
+                  <span
+                    className="block h-full rounded-full bg-brand"
+                    style={{ width: `${Math.round((stats.read / stats.total) * 100)}%` }}
+                  />
+                </span>
+              </span>
+            )}
+            {showGateHint && (
+              <span className="text-[13px] text-muted-foreground">
+                Сначала прочитайте страницу
               </span>
             )}
           </div>
-          <div className="text-[13px] leading-snug text-yellow-800 dark:text-yellow-200">
-            {description}
+          )}
+          <div className="ml-auto flex flex-wrap items-center gap-2 max-sm:w-full">
+            {showReaders && (
+              <Button variant="outline" size="sm" asChild>
+                <Link href={`/knowledge/${pageSlug}/required-reading`}>Кто прочитал</Link>
+              </Button>
+            )}
+            {plate.kind === "unread" && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onConfirm}
+                disabled={pending || !plate.canConfirm}
+                className="max-sm:flex-1"
+              >
+                {pending ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Check className="size-4" />
+                )}
+                Прочитано
+              </Button>
+            )}
           </div>
         </div>
-        <span
-          data-tip={gateReady ? undefined : "Ознакомьтесь со страницей, прежде чем подтверждать прочтение"}
-          className="inline-flex shrink-0"
-        >
+      )}
+
+      {plate.changedAfterRead && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-foreground/10 pt-2">
+          <span className="flex min-w-0 flex-1 items-center gap-2 text-[13px] text-muted-foreground">
+            <RotateCcw className="size-4 shrink-0" />
+            Изменена после прочтения
+          </span>
           <Button
+            variant="outline"
             size="sm"
-            onClick={onConfirm}
-            disabled={pending || !gateReady}
-            className="shrink-0 bg-yellow-600 hover:bg-yellow-700 text-white"
+            onClick={onRequestReread}
+            disabled={rereadPending}
+            className="max-sm:w-full"
           >
-            {pending ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <CheckCircle2 className="size-4" />
-            )}
-            Прочитано
+            {rereadPending && <Loader2 className="size-4 animate-spin" />}
+            Попросить перечитать
           </Button>
-        </span>
-      </div>
+        </div>
+      )}
+      {dialog}
     </div>
   );
 }

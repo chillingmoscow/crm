@@ -31,7 +31,7 @@ const DB_PERMISSIONS: Record<string, string[]> = {
   "org": ["org.delete_legal_entity", "org.delete_venue", "org.manage_account", "org.manage_legal_entities", "org.manage_venues", "org.view_account", "org.view_audit", "org.view_legal_entities", "org.view_venues"],
   "payroll": ["payroll.approve", "payroll.configure", "payroll.pay", "payroll.review", "payroll.sync", "payroll.view"],
   "people": ["people.delete_department", "people.delete_role", "people.delete_staff", "people.edit_staff", "people.invite_staff", "people.manage_candidates", "people.manage_roles", "people.terminate_staff", "people.view_roles", "people.view_staff", "people.view_staff_details"],
-  "sales": ["sales.adjust_shifts", "sales.configure_shifts", "sales.export_shifts", "sales.sync_shifts", "sales.view_shifts"],
+  "sales": ["sales.adjust_shifts", "sales.configure_shifts", "sales.export_shifts", "sales.plan", "sales.sync_shifts", "sales.view_shifts"],
   "schedule_checklists": ["schedule.checklist_archive", "schedule.checklist_create", "schedule.checklist_edit", "schedule.checklist_publish", "schedule.review"],
   "schedule_shifts": ["schedule.qualifications", "schedule.shift_assign", "schedule.shift_copy", "schedule.shift_create", "schedule.shift_delete", "schedule.shift_edit", "schedule.shift_publish", "schedule.view_all"],
   "schedule_templates": ["schedule.template_archive", "schedule.template_copy", "schedule.template_create", "schedule.template_edit"],

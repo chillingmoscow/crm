@@ -1,4 +1,5 @@
 "use client";
+import { unwrapAction, type ActionResult } from "@/lib/actions/result";
 import { useEffect, useState } from "react";
 import { Plus, Settings2, X } from "lucide-react";
 import { toast } from "sonner";
@@ -100,12 +101,14 @@ function Form({
       if (!parsed.success)
         throw Error(parsed.error.issues[0]?.message ?? "Проверьте параметры");
       onSaved(
-        await saveMovementConfiguration({
-          venueId: data.venueId,
-          version: previous?.version ?? 0,
-          config: parsed.data,
-          reason,
-        }),
+        unwrapAction(
+          await saveMovementConfiguration({
+            venueId: data.venueId,
+            version: previous?.version ?? 0,
+            config: parsed.data,
+            reason,
+          }),
+        ),
       );
       toast.success("Правила инкассаций сохранены");
     } catch (e) {
@@ -476,9 +479,17 @@ function Form({
     </EditDrawer>
   );
 }
-export function CashMovementSettingsSection({ venueId }: { venueId: string }) {
-  const [data, setData] = useState<MovementConfiguration | null>(null),
-    [error, setError] = useState<string | null>(null),
+export function CashMovementSettingsSection({
+  venueId,
+  initial,
+}: {
+  venueId: string;
+  /** Настройки, загруженные сервером: секция сразу рисуется заполненной. */
+  initial?: ActionResult<MovementConfiguration>;
+}) {
+  const [servedVenueId] = useState(venueId);
+  const [data, setData] = useState<MovementConfiguration | null>(initial?.ok ? initial.data : null),
+    [error, setError] = useState<string | null>(initial && !initial.ok ? initial.error : null),
     [open, setOpen] = useState(false);
   // Форму держим смонтированной, пока панель уезжает (docs/motion.md);
   // каждое открытие — новый ключ, форма начинается с сохранённых данных.
@@ -488,8 +499,12 @@ export function CashMovementSettingsSection({ venueId }: { venueId: string }) {
     setOpen(true);
   };
   useEffect(() => {
+    // Данные, присланные сервером для этого заведения, уже на экране —
+    // запрос не нужен (секция не меняет высоту после загрузки скриптов).
+    if (initial && venueId === servedVenueId) return;
     let live = true;
     loadMovementConfiguration(venueId)
+      .then(unwrapAction)
       .then((d) => {
         if (live) setData(d);
       })
@@ -499,7 +514,7 @@ export function CashMovementSettingsSection({ venueId }: { venueId: string }) {
     return () => {
       live = false;
     };
-  }, [venueId]);
+  }, [venueId, initial, servedVenueId]);
   // Нет права — секции нет (как у «Проведения финансовых операций»).
   if (error === NO_ACCESS) return null;
   return (

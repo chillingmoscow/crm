@@ -24,8 +24,8 @@ interface KbMobileTreeDrawerProps {
   canSeeTrash: boolean;
   canDelete?: boolean;
   canDuplicate?: boolean;
-  canViewAudit?: boolean;
-  canViewAnalytics?: boolean;
+  canViewOverview?: boolean;
+  readingSummary?: { total: number; unread: number };
   canImport?: boolean;
   canCreate?: boolean;
   canManageTemplates?: boolean;
@@ -45,8 +45,8 @@ export function KbMobileTreeDrawer({
   canSeeTrash,
   canDelete = false,
   canDuplicate = false,
-  canViewAudit = false,
-  canViewAnalytics = false,
+  canViewOverview = false,
+  readingSummary,
   canImport = false,
   canCreate = false,
   canManageTemplates = false,
@@ -65,23 +65,29 @@ export function KbMobileTreeDrawer({
         <Button
           variant="outline"
           size="sm"
-          className="md:hidden gap-1.5"
+          className="shrink-0 gap-1.5 max-sm:size-9 max-sm:px-0 md:hidden"
           aria-label="Открыть дерево страниц"
         >
           <Menu className="size-4" />
-          Страницы
+          {/* На узком телефоне — только значок: подпись не оставляет места
+              значкам справа. */}
+          <span className="max-sm:hidden">Страницы</span>
         </Button>
       </SheetTrigger>
       <SheetContent
         side="left"
-        className="flex w-[88vw] max-w-sm flex-col bg-sidebar p-0"
+        // Крестик панели стоит в правом верхнем углу — «+» шапки дерева
+        // отодвигаем от него.
+        className="flex w-[88vw] max-w-sm flex-col bg-sidebar p-0 [&_[data-kb-tree-header]]:pr-10"
         // Не автофокусим первый элемент (кнопку «Поиск») — иначе на тач её
         // Tooltip раскрывается по фокусу и подсказка «Поиск (⌘K)» висит при
         // каждом открытии дровера.
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
-        <SheetHeader className="border-b px-4 py-3">
-          <SheetTitle className="text-sm">База знаний</SheetTitle>
+        {/* Заголовок «База знаний» рисует само дерево — здесь только для
+            скринридера. */}
+        <SheetHeader className="sr-only">
+          <SheetTitle>База знаний</SheetTitle>
           <SheetDescription className="sr-only">
             Дерево страниц базы знаний
           </SheetDescription>
@@ -97,8 +103,8 @@ export function KbMobileTreeDrawer({
             canSeeTrash={canSeeTrash}
             canDelete={canDelete}
             canDuplicate={canDuplicate}
-            canViewAudit={canViewAudit}
-            canViewAnalytics={canViewAnalytics}
+            canViewOverview={canViewOverview}
+            readingSummary={readingSummary}
             canImport={canImport}
             canCreate={canCreate}
             canManageTemplates={canManageTemplates}

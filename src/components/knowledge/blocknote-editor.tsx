@@ -62,15 +62,7 @@ import {
   type BlockTypeSelectItem,
 } from "@blocknote/react";
 
-// react-icons IconType — `(props: IconBaseProps) => JSX.Element`. Не
-// импортируем сам `react-icons` (transitive dep BN, не в нашем
-// package.json), описываем минимально совместимо с BN's
-// `BlockTypeSelectItem.icon` shape.
-type IconType = ((props: {
-  size?: number | string;
-  className?: string;
-  color?: string;
-}) => React.ReactElement) & { displayName?: string };
+import { makeBnIcon } from "@/lib/knowledge/bn-icons/make";
 import { cn } from "@/lib/utils";
 import { useCoarsePointer } from "@/hooks/use-mobile";
 import { KbMobileToolbar } from "@/components/knowledge/kb-mobile-toolbar";
@@ -114,12 +106,7 @@ import "@blocknote/shadcn/style.css";
 
 import type { KbBlock } from "@/types/knowledge";
 import { KB_GALLERY_EMPTY_JSON } from "@/lib/knowledge/gallery";
-import {
-  KB_COLLECTION_DEFAULT_VISIBLE_FIELDS,
-  KB_COLLECTION_EMPTY_SCHEMA,
-  createCollectionId,
-  getPageCollectionId,
-} from "@/lib/knowledge/collection";
+import { kbCollectionSlashProps } from "@/lib/knowledge/collection";
 
 /** Custom URL scheme used to mark uploaded KB files. The string after
  *  `kbfile://` is the storage_path inside `account-attachments`.
@@ -244,7 +231,7 @@ function getKbCalloutSlashItems(editor: BlockNoteEditor<never, never, never>) {
       subtext: "Жёлтая плашка с восклицанием",
       aliases: ["warning", "warn", "preduprezhdenie"],
       group: "Подсказки",
-      icon: <AlertTriangle className="size-4 text-yellow-700 dark:text-yellow-400" />,
+      icon: <AlertTriangle className="size-4 text-amber-700 dark:text-amber-400" />,
       onItemClick: insert("warning"),
     },
     {
@@ -277,7 +264,7 @@ function getKbNewPageSlashItem(onCreate: () => void) {
     subtext: "Создать вложенную страницу и открыть её",
     aliases: ["page", "new", "novaya", "stranitsa", "новая", "страница"],
     group: "Базовые блоки",
-    icon: <FilePlus className="size-4 text-brand" />,
+    icon: <FilePlus className="size-4" />,
     onItemClick: onCreate,
   };
 }
@@ -293,7 +280,7 @@ function getKbEmojiSlashItem(editor: BlockNoteEditor<never, never, never>) {
     subtext: "Вставить эмодзи в текст",
     aliases: ["emoji", "эмодзи", "smile", "смайл"],
     group: "Прочее",
-    icon: <Smile className="size-4 text-brand" />,
+    icon: <Smile className="size-4" />,
     onItemClick: () => {
       // Координата каретки — берём bounding rect view'а на posBefore.
       // Если selection пуст или в неподходящем месте, fallback к centre
@@ -327,7 +314,7 @@ function getKbGallerySlashItem(editor: BlockNoteEditor<never, never, never>) {
     subtext: "Сетка изображений с подписями",
     aliases: ["gallery", "grid", "галерея", "сетка", "фото", "изображения"],
     group: "Медиа",
-    icon: <Images className="size-4 text-brand" />,
+    icon: <Images className="size-4" />,
     onItemClick: () => {
       insertOrUpdateBlockForSlashMenu(editor, {
         type: "gallery",
@@ -351,22 +338,11 @@ function getKbCollectionSlashItem(
     subtext: "Список дочерних страниц со свойствами",
     aliases: ["collection", "database", "db", "база", "коллекция", "список"],
     group: "Базовые блоки",
-    icon: <Database className="size-4 text-brand" />,
+    icon: <Database className="size-4" />,
     onItemClick: () => {
       insertOrUpdateBlockForSlashMenu(editor, {
         type: "collection",
-        props: {
-          view: "list",
-          title: "Коллекция",
-          viewTitle: "Галерея",
-          collectionId: pageId
-            ? getPageCollectionId(pageId)
-            : createCollectionId(),
-          schemaJson: KB_COLLECTION_EMPTY_SCHEMA,
-          visibleFieldIdsJson: KB_COLLECTION_DEFAULT_VISIBLE_FIELDS,
-          fieldOrderIdsJson: KB_COLLECTION_DEFAULT_VISIBLE_FIELDS,
-          viewId: "",
-        },
+        props: kbCollectionSlashProps(pageId ?? null),
       } as never);
     },
   };
@@ -432,27 +408,6 @@ function getActiveBlockType(
   }
 }
 
-/** Lucide-иконка как IconType (react-icons-совместимый shape) — BN'ный
- *  `BlockTypeSelectItem.icon` ждёт react-icons. Default react-icons/ri
- *  (RiH1 / RiH2 / RiText / ...) — filled-paths и визуально жирные. У
- *  нас всё остальное в DS — lucide stroke 1.5px, дроп-даун стиля
- *  выбивается. Подменяем на lucide. */
-const lucideAsIcon = (
-  Comp: LucideIcon,
-  strokeWidth = 1.75,
-): IconType => {
-  const Wrapped: IconType = ({ size, ...rest }) => (
-    <Comp
-      width={size ?? 16}
-      height={size ?? 16}
-      strokeWidth={strokeWidth}
-      {...(rest as Record<string, unknown>)}
-    />
-  );
-  Wrapped.displayName = `LucideIcon(${Comp.displayName ?? Comp.name ?? "Anonymous"})`;
-  return Wrapped;
-};
-
 /** Custom items для BN's BlockTypeSelect — те же типы блоков, что и
  *  default'ные, но с lucide-иконками. Названия берём из BN-default'а
  *  (он синхронизирован с нашим slash-меню override). */
@@ -485,7 +440,7 @@ function getKbBlockTypeSelectItems(
         : item.type;
     const lucide = ICON_MAP[key];
     if (!lucide) return item;
-    return { ...item, icon: lucideAsIcon(lucide) };
+    return { ...item, icon: makeBnIcon(lucide) };
   });
 }
 

@@ -383,23 +383,48 @@ export function usePeopleOverview(
   revision = "",
   /** Выбор «Обзора» из cookie (сервер, `readOverviewOpen`). */
   initialOpen?: boolean,
+  /**
+   * Данные текущего месяца, загруженные сервером (`initialPeopleOverview`):
+   * панель рисуется сразу заполненной, без скелетона другой высоты.
+   */
+  initialData?: PeopleOverviewData,
 ) {
   const id = useId();
   const [open, setOpen, known] = useOverviewOpen(kind === "staff" ? OVERVIEW_KEYS.staff : OVERVIEW_KEYS.candidates, initialOpen);
   const [period, setPeriod] = useState<string | null>(null),
     [refresh, setRefresh] = useState(0);
-  const [data, setData] = useState<PeopleOverviewData | null>(null),
+  const [data, setData] = useState<PeopleOverviewData | null>(initialData ?? null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(false);
   const scopedData =
     data?.scope_id === scopeId && data.kind === kind ? data : null;
-  useEffect(() => {
+  // Первый запрос не нужен, пока на экране то, что прислал сервер: тот же
+  // месяц, без обновлений и правок списка. Условие — по состоянию, а не по
+  // ref-флагу «уже загружали»: двойной запуск эффектов в StrictMode его не ломает.
+  const [initialRevision] = useState(revision);
+  // После первого запроса серверные данные больше не «свои»: при возврате к
+  // исходному месяцу или ревизии читаем заново.
+  const [touched, setTouched] = useState(false);
+  const servedByServer =
+    !!initialData &&
+    !touched &&
+    initialData.scope_id === scopeId &&
+    initialData.kind === kind &&
+    period === null &&
+    refresh === 0 &&
+    revision === initialRevision;
+  // Смена заведения или вида — сброс прямо при отрисовке (не эффектом: он
+  // сработал бы и при монтировании и стёр данные сервера).
+  const [shownScope, setShownScope] = useState(`${kind}:${scopeId}`);
+  if (shownScope !== `${kind}:${scopeId}`) {
+    setShownScope(`${kind}:${scopeId}`);
     setPeriod(null);
     setData(null);
     setError(false);
-  }, [kind, scopeId]);
+  }
   useEffect(() => {
-    if (!open || !known) return;
+    if (!open || !known || servedByServer) return;
+    setTouched(true);
     let cancelled = false;
     setBusy(true);
     setError(false);
@@ -417,7 +442,7 @@ export function usePeopleOverview(
     return () => {
       cancelled = true;
     };
-  }, [open, known, period, refresh, kind, scopeId, revision]);
+  }, [open, known, period, refresh, kind, scopeId, revision, servedByServer]);
   useEffect(() => {
     if (!open) return;
     const focused = () => setRefresh((value) => value + 1);

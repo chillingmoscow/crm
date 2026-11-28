@@ -12,13 +12,8 @@ import {
 import { KbLinkPreview } from "@/app/(dashboard)/knowledge/_components/kb-link-preview";
 import { KbHotkeyListener } from "@/app/(dashboard)/knowledge/_components/kb-hotkey-listener";
 import { KbSaveStatusBadge } from "@/app/(dashboard)/knowledge/_components/kb-save-status";
-import { KbMobileSubHeader } from "@/app/(dashboard)/knowledge/_components/kb-mobile-sub-header";
-import { NotificationBell } from "@/components/shared/notification-bell";
-import { SidebarTrigger } from "@/components/ui/sidebar";
-import {
-  PageHeaderActionsSlot,
-  PageHeaderBreadcrumbSlot,
-} from "@/components/shared/page-header-actions";
+import { DashboardTopbar } from "@/components/shared/dashboard-topbar";
+import { canOpenKbOverview } from "@/lib/knowledge/shell";
 
 /**
  * Knowledge Base shell. Gates the entire /knowledge/* tree on
@@ -48,8 +43,6 @@ export default async function KnowledgeLayout({
   const canImport = permSet.has("kb.import_pages");
   const canCreate = permSet.has("kb.create_pages");
   const canManageTemplates = permSet.has("kb.manage_templates");
-  const canViewAudit = permSet.has("org.view_audit");
-  const canViewAnalytics = permSet.has("kb.view_analytics");
   if (!canView) redirect("/dashboard");
 
   const cookieStore = await cookies();
@@ -63,8 +56,9 @@ export default async function KnowledgeLayout({
     canSeeTrash: canDelete,
     canDelete,
     canDuplicate: canCreate,
-    canViewAudit,
-    canViewAnalytics,
+    // «Обзор» открывается при любом из трёх прав; блоки внутри — каждый
+    // при своём (спека редизайна, «Решения по вопросам проверки»).
+    canViewOverview: canOpenKbOverview(permSet),
     canImport,
     canCreate,
     canManageTemplates,
@@ -95,34 +89,24 @@ export default async function KnowledgeLayout({
           </Suspense>
         </KbSidebarShell>
         <main className="flex-1 min-w-0 flex flex-col">
-          {/* Шапка. Mobile: верхняя строка — переключатель сайдбара +
-              «Страницы» + действия + колокольчик; breadcrumb и «Сохранено»
-              уезжают во вторую строку (ниже). Desktop: всё в одной строке как
-              было (breadcrumb + «Сохранено»), «Страницы» нет — есть боковое
-              дерево. Слоты breadcrumb/actions — context-консьюмеры, безопасно
-              рендерятся в двух местах (видно одно по брейкпоинту). */}
-          <header data-dashboard-topbar className="sticky top-0 z-30 flex h-14 items-center gap-2 px-4 md:px-6 bg-background/95 backdrop-blur">
-            <SidebarTrigger className="md:hidden" />
-            {/* Mobile: «Страницы» в шапке */}
-            <div className="md:hidden">
-              <Suspense fallback={null}>
-                <KbMobileTreeLoader {...treePermissions} />
-              </Suspense>
-            </div>
-            {/* Desktop: breadcrumb + «Сохранено» в шапке */}
-            <div className="hidden flex-1 items-center gap-2 md:flex">
-              <PageHeaderBreadcrumbSlot />
-              <div className="flex-1" />
-              <KbSaveStatusBadge />
-            </div>
-            <div className="flex-1 md:hidden" />
-            <PageHeaderActionsSlot />
-            <NotificationBell />
-          </header>
-          {/* Mobile-only вторая строка: breadcrumb + «Сохранено». Рендерится
-              только когда breadcrumb задан (страницы-редакторы) — на корне БЗ /
-              дашборде (hideBreadcrumb) пустой полосы нет (Codex P2 на #438). */}
-          <KbMobileSubHeader />
+          {/* Общая верхняя панель приложения (та же, что в остальных
+              разделах), но внутри правой колонки: дерево слева идёт во всю
+              высоту экрана. На телефоне перед путём — «Страницы». */}
+          <DashboardTopbar
+            inKnowledge
+            leading={
+              <div className="md:hidden">
+                <Suspense fallback={null}>
+                  <KbMobileTreeLoader {...treePermissions} />
+                </Suspense>
+              </div>
+            }
+            afterBreadcrumb={
+              <div className="hidden md:flex">
+                <KbSaveStatusBadge />
+              </div>
+            }
+          />
           {children}
         </main>
       </div>

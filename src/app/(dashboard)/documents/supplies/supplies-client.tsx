@@ -393,9 +393,13 @@ export function SuppliesClient({
     [initial.venueId],
   );
   useEffect(() => {
+    // Список с этими фильтрами уже прислал сервер: перечитывать его сразу
+    // после открытия незачем — таблица мигала и могла смениться. Пока
+    // фильтры — тот же объект, что пришёл с сервера, запроса нет.
+    if (filters === initialFilters) return;
     const timer = setTimeout(() => void refresh(filters), 200);
     return () => clearTimeout(timer);
-  }, [filters, refresh]);
+  }, [filters, refresh, initialFilters]);
 
   // Пока идёт чтение Quick Resto, список обновляется сам — только на
   // видимой вкладке, чтобы фоновые вкладки не дёргали сервер.

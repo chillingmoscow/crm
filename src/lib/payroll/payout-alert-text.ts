@@ -93,3 +93,19 @@ export function transferAlert(input: { month: string; payoutNo: 1 | 2; name: str
     ],
   };
 }
+
+/** Итоги KPI за прошлый месяц не подведены (KPI старших). */
+export function kpiAlert(month: string, people: { name: string; role: string; recount?: boolean }[]): AlertText {
+  return {
+    title: `KPI за ${monthName(month)} ${month.slice(0, 4)} не подведены`,
+    lines: people.map((p) => `${p.name} — ${p.role}${p.recount ? ": досчитайте план, когда придёт отчёт продаж" : ""}`),
+  };
+}
+
+/** План продаж месяца не задан — чего не хватает (оборот, доля алкоголя). */
+export function salesPlanAlert(month: string, missing: ("turnover" | "alcohol_share")[]): AlertText {
+  return {
+    title: `План продаж на ${monthName(month)} ${month.slice(0, 4)} не задан`,
+    lines: missing.map((m) => (m === "turnover" ? "Оборот" : "Доля алкоголя")),
+  };
+}

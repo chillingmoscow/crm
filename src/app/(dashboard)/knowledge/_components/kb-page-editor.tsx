@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { toast } from "sonner";
@@ -102,6 +102,10 @@ const KbBlockNoteEditor = dynamic(
 
 interface KbPageEditorProps {
   pageId: string;
+  /** Сразу под заголовком, до свойств: плашка обязательного чтения. */
+  afterTitle?: ReactNode;
+  /** После текста: «Подстраницы». */
+  afterContent?: ReactNode;
   initialTitle: string;
   initialIcon: string | null;
   initialIconColor: string | null;
@@ -195,6 +199,8 @@ interface KbPageEditorProps {
  */
 export function KbPageEditor({
   pageId,
+  afterTitle,
+  afterContent,
   initialTitle,
   initialIcon,
   initialIconColor,
@@ -317,7 +323,7 @@ export function KbPageEditor({
             value={icon}
             color={iconColor}
             disabled={!canEdit}
-            triggerSize={64}
+            triggerSize={56}
             onChange={({ icon: nextIcon, color: nextColor }) => {
               // commitIcon: sync refs + state + IMMEDIATE flush (bypass
               // 2-сек debounce). Юзер ждёт мгновенной персистентности
@@ -358,7 +364,7 @@ export function KbPageEditor({
           }}
           placeholder="Без названия"
           disabled={!canEdit}
-          // H1-страницы: 40px / 800 / -0.02em / 1.15. resize-none чтобы
+          // H1-страницы: 36px / 700 (28px на телефоне) — шкала DS. resize-none чтобы
           // юзер не таскал ручкой. overflow-hidden + field-sizing
           // (CSS-уровневый auto-grow) = wrap без скролла без JS-reflow.
           style={{
@@ -369,11 +375,13 @@ export function KbPageEditor({
             fieldSizing: "content",
           } as React.CSSProperties & { fieldSizing?: string }}
           className="w-full bg-transparent px-2 -ml-2 py-1 outline-none resize-none overflow-hidden
-                     text-[40px] font-extrabold tracking-tight leading-[1.15]
+                     text-[28px] md:text-4xl font-bold tracking-[-0.5px] leading-[1.2]
                      placeholder:text-muted-foreground/50
                      disabled:opacity-100 disabled:text-foreground"
         />
       </div>
+
+      {afterTitle}
 
       {/* Properties panel — Notion-style key-value fields, рендерится
           между title и content. Свой save-цикл (saveKbPageProperties),
@@ -388,8 +396,9 @@ export function KbPageEditor({
         />
       )}
 
-      {/* Page-level Comments (Notion-style discussion). Между properties
-          и body — соответствует Notion'овскому расположению. Render-gate
+      {/* Обсуждение страницы — над текстом, под свойствами (решение
+          владельца 28.11.2026: открыл страницу — видишь, на что ответить;
+          без комментариев — одна строка «Написать комментарий…»). Render-gate
           внутри: если у юзера НЕТ kb.comment_pages И комментариев нет —
           компонент не рендерится. inline-comments (через ThreadStore)
           работают независимо в KbBlockNoteEditor ниже. */}
@@ -483,6 +492,8 @@ export function KbPageEditor({
           }}
         />
       </KbMentionResolutionProvider>
+
+      {afterContent}
     </div>
   );
 }

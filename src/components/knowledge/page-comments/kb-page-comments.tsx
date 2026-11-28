@@ -1,5 +1,6 @@
 "use client";
 
+import { cn } from "@/lib/utils";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
@@ -267,16 +268,30 @@ export function KbPageComments({
   // Render gate: если нет permission'а и нет live-комментариев — не
   // рендерим вообще (эмпти-state без composer'а — шум).
   const visibleComments = comments.filter((c) => !c.deletedAt);
-  if (!canComment && visibleComments.length === 0) {
-    return null;
-  }
+  // Обсуждение стоит над текстом (решение владельца 28.11.2026: зашёл —
+  // сразу видишь, что есть на что ответить). Пока комментариев нет (и пока
+  // они грузятся) — только тихая строка «Написать комментарий…», без
+  // заголовка и линии. Поле ввода всегда последний ребёнок одной и той же
+  // обёртки: при появлении первого комментария (в том числе чужого, по
+  // realtime) черновик и фокус не теряются.
+  const hasComments = !loading && visibleComments.length > 0;
+  if (!canComment && !hasComments) return null;
 
   return (
-    <section className="mt-2 flex flex-col gap-4 border-t border-border/60 pt-6">
-      <h2 className="px-2 -ml-2 text-[13px] font-medium text-muted-foreground">
-        Комментарии
-      </h2>
-      {!loading && comments.length > 0 && (
+    <section
+      aria-label="Обсуждение"
+      className={cn("mb-2 flex flex-col gap-3", hasComments && "border-b pb-5")}
+    >
+      {hasComments && (
+        // Как заголовок KbDocSection: 16 / 600 и серое число.
+        <h2 className="flex items-center gap-2 text-base font-semibold tracking-normal">
+          Обсуждение
+          <span className="font-medium tabular-nums text-muted-foreground">
+            {visibleComments.length}
+          </span>
+        </h2>
+      )}
+      {hasComments && (
         <div className="flex flex-col gap-5">
           {comments.map((c) => (
             <PageCommentItem

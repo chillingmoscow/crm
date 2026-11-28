@@ -136,7 +136,7 @@ function CollectionItemRow({
     <div className="kb-collection-row">
       <Link href={`/knowledge/${item.slug}`} className="kb-collection-row-main">
         {layoutSettings.showPageIcon && (
-          <KbPageIcon icon={item.icon} color={item.icon_color} size={18} />
+          <KbPageIcon icon={item.icon} color={item.icon_color} size={16} />
         )}
         <div className="min-w-0 flex-1">
           <div className="kb-collection-row-title">

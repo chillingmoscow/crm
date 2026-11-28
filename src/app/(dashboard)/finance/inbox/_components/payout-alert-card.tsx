@@ -20,6 +20,9 @@ const KIND_LABEL: Record<PayoutAlertItem["kind"], string> = {
   message: "Сообщение менеджерам",
   transfer: "Выплата переводом",
   carry: "Перенос остатка",
+  kpi: "KPI старших",
+  kpi_plan: "План продаж",
+  sales_plan: "План продаж",
 };
 
 /**
@@ -39,7 +42,10 @@ export function PayoutAlertCard({ item, canResolve, onResolved, today }: {
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const date = item.business_date ?? item.created_at.slice(0, 10);
+  // У карточек KPI дата — месяц итогов (1-е число), а не день события.
+  const kpi = item.kind === "kpi" || item.kind === "kpi_plan";
+  const salesPlan = item.kind === "sales_plan";
+  const date = kpi || salesPlan ? item.created_at.slice(0, 10) : item.business_date ?? item.created_at.slice(0, 10);
 
   const resolve = async () => {
     setBusy(true);
@@ -119,8 +125,8 @@ export function PayoutAlertCard({ item, canResolve, onResolved, today }: {
           </Button>
         ) : null}
         <Button asChild variant="outline">
-          <Link href={toSheet ? "/people/payroll" : "/people/payroll?tab=plan"}>
-            {toSheet ? "Открыть зарплату" : "Открыть план выплат"}
+          <Link href={salesPlan ? `/sales/statistics?plan=${(item.business_date ?? item.created_at).slice(0, 7)}` : kpi ? `/people/payroll?tab=kpi&month=${(item.business_date ?? item.created_at).slice(0, 7)}` : toSheet ? "/people/payroll" : "/people/payroll?tab=plan"}>
+            {salesPlan ? "Задать план" : kpi ? "Открыть KPI" : toSheet ? "Открыть зарплату" : "Открыть план выплат"}
           </Link>
         </Button>
       </div>

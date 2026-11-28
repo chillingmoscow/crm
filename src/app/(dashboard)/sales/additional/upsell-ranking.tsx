@@ -60,14 +60,22 @@ export function UpsellRankingCard({
   venueId,
   month,
   groups,
+  initial,
 }: {
   venueId: string;
   /** «2026-11». */
   month: string;
   /** Ключи подразделения вкладки: id и старый вид («legacy:bar»). */
   groups: string[];
+  /**
+   * Рейтинг, загруженный сервером: карточка сразу рисуется заполненной, без
+   * скелетона другой высоты, и график с таблицей под ней не уезжают.
+   */
+  initial?: UpsellRanking;
 }) {
-  const [cache, setCache] = useState<Record<string, UpsellRanking>>({});
+  const [cache, setCache] = useState<Record<string, UpsellRanking>>(() =>
+    initial ? { [initial.month]: initial } : {},
+  );
   // Ошибка — своего месяца: при переходе на уже загруженный месяц она не висит.
   const [failure, setFailure] = useState<{ month: string; text: string } | null>(null);
   const error = failure?.month === month ? failure.text : null;

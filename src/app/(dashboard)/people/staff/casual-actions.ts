@@ -84,7 +84,7 @@ export async function createCasualEmployee(input: {
     p_role_id: parsed.data.roleId,
   });
   if (created.error || typeof created.data !== "string")
-    return { id: null, pin: null, error: errorText(created.error, "Не удалось добавить разового сотрудника") };
+    return { id: null, pin: null, error: errorText(created.error, "Не удалось добавить подменного сотрудника") };
   const saved = await saveTelegramId(db, created.data, input.telegramId);
   if (saved) return { id: created.data, pin: null, error: saved };
   return provision(created.data, input.chatInvites === true);
@@ -179,7 +179,7 @@ export async function convertCasualToStaff(input: z.input<typeof convertSchema>)
   const venueId = venue.data as string | null;
   if (!venueId) return { userId: null, issuedPin: null, notice: null, error: "Не выбрано заведение" };
   if (!employee.data?.casual || employee.data.local_user_id)
-    return { userId: null, issuedPin: null, notice: null, error: "Разовый сотрудник не найден" };
+    return { userId: null, issuedPin: null, notice: null, error: "Подменный сотрудник не найден" };
   // Те же условия, что проверит база, — до создания учётной записи: откат
   // после неё не всегда чистый (журнал приёма ссылается на нового человека).
   const admin = createAdminClient();
@@ -316,7 +316,7 @@ export async function dismissCasualEmployee(input: {
   withoutChats?: boolean;
 }): Promise<DismissCasualResult> {
   const parsed = z.string().uuid().safeParse(input.id);
-  if (!parsed.success) return { done: false, pending: null, error: "Разовый сотрудник не найден" };
+  if (!parsed.success) return { done: false, pending: null, error: "Подменный сотрудник не найден" };
   // Как у штатных: увольняет тот, кто ведёт сотрудников (база проверит то же).
   const can = await getCachedPermissionChecker();
   if (!can("people.edit_staff") || !can("people.invite_staff"))

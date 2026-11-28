@@ -17,13 +17,17 @@ export function useActiveNavGlide(
   containerRef: RefObject<HTMLElement | null>,
   pathname: string,
   enabled: boolean,
+  /** Как найти активный пункт. Меню приложения — ссылка с
+   *  `aria-current`; дерево базы знаний — строка с `data-kb-active`
+   *  (ссылка там занимает не всю строку). */
+  selector = 'a[aria-current="page"]',
 ) {
   const prevActive = useRef<HTMLElement | null>(null);
 
   useLayoutEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    const next = container.querySelector<HTMLElement>('a[aria-current="page"]');
+    const next = container.querySelector<HTMLElement>(selector);
     const prev = prevActive.current;
     prevActive.current = next;
     if (!enabled || !prev || !next || prev === next) return;
@@ -69,7 +73,7 @@ export function useActiveNavGlide(
     animation.onfinish = done;
     animation.oncancel = done;
     return () => animation.cancel();
-  }, [containerRef, pathname, enabled]);
+  }, [containerRef, pathname, enabled, selector]);
 }
 
 function isShown(el: HTMLElement) {

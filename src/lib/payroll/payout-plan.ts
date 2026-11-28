@@ -225,6 +225,22 @@ export function planFirstPayout(input: {
     const official = row.officialExpected?.amount ?? 0;
     // Вторая выплата — остаток месяца: без запаса и прогноза.
     const reserve = mode === "rest" ? 0 : config.reserve;
+    // Премия KPI за M известна только 1-го M+1 и платится второй выплатой:
+    // в первую (половину или заработанное за 1–15) она не входит, даже если её уже записали.
+    const kpiSources = new Set(
+      data.adjustments
+        .filter((a) => a.employee_id === id && a.origin === "kpi" && !a.deleted_at)
+        .map((a) => `payroll-entry:${a.id}`),
+    );
+    const kpiAccrued = mode !== "rest" && kpiSources.size
+      ? round(
+          data.accruals
+            .filter((a) => a.employee_id === id && a.business_date >= month && a.business_date < until)
+            .flatMap((a) => a.components)
+            .filter((c) => c.source && kpiSources.has(c.source))
+            .reduce((s, c) => s + (c.amount ?? 0), 0),
+        )
+      : 0;
     // Первая выплата клинера — заработанное за 1–15 число (с удержаниями, без
     // штрафов на подтверждении).
     const midMonth = dayOf(month, 16);
@@ -232,14 +248,14 @@ export function planFirstPayout(input: {
       ? round(
           data.accruals
             .filter((a) => a.employee_id === id && a.business_date >= month && a.business_date < midMonth)
-            .reduce((s, a) => s + Number(a.salary), 0) -
+            .reduce((s, a) => s + Number(a.salary), 0) - kpiAccrued -
           data.adjustments
             .filter((a) => a.employee_id === id && !a.approved && !a.deleted_at && a.amount < 0 &&
               (a.medium ?? "money") === "money" && a.business_date >= month && a.business_date < midMonth)
             .reduce((s, a) => s - Number(a.amount), 0),
         )
       : 0;
-    const half = mode === "half" ? round((carried + earned + forecast - reserve) / 2) : 0;
+    const half = mode === "half" ? round((carried + earned - kpiAccrued + forecast - reserve) / 2) : 0;
     // Официальная часть идёт в счёт первой половины месяца (Павел, 25.11): её
     // платим и при увольнении, поэтому подстраховываемся на первой выплате.
     const ceiling = round(carried + earned - paid - reserve - official);

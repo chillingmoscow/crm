@@ -46,8 +46,12 @@ import {
 export function KbNavLink({
   collapsed,
   initialHidden = false,
+  href = "/knowledge",
 }: {
   collapsed: boolean;
+  /** Куда ведёт значок вне базы знаний: менеджеру с правом аналитики —
+   *  на «Обзор», остальным — на «Главную» базы. */
+  href?: string;
   /** SSR-полученное значение из cookie `kb_sidebar_hidden` (читает
    *  dashboard/layout.tsx). Используется до hydration'а чтобы цвет
    *  иконки на первом рендере уже соответствовал реальному состоянию
@@ -95,7 +99,7 @@ export function KbNavLink({
   if (collapsed) {
     return (
       <Link
-        href="/knowledge"
+        href={href}
         aria-current={isOnKb ? "page" : undefined}
         aria-label="База знаний"
         data-tip="База знаний"
@@ -116,7 +120,7 @@ export function KbNavLink({
 
   return (
     <Link
-      href="/knowledge"
+      href={href}
       aria-current={isOnKb ? "page" : undefined}
       onClick={handleClick}
       onMouseEnter={handleMouseEnter}

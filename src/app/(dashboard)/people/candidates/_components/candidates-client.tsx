@@ -54,6 +54,18 @@ import type { CandidateStatusUpdate } from "./candidate-status-change";
 import { CandidateFilterChip } from "./candidate-filter-chip";
 import { CandidateBoard } from "./candidate-board";
 import { unwrapAction } from "@/lib/actions/result";
+import type { PeopleOverviewData } from "@/lib/people/overview";
+import type { CandidateBoardData } from "@/lib/candidates/data";
+import {
+  candidatesViewCookieName,
+  candidatesViewKey,
+  parseCandidatesView,
+  type CandidatesView,
+} from "@/lib/candidates/view-pref";
+
+function writeViewCookie(preferenceKey: string, view: CandidatesView) {
+  document.cookie = `${candidatesViewCookieName(preferenceKey)}=${view}; path=/; max-age=31536000; samesite=lax`;
+}
 
 const sortableColumns = new Set<string>(CANDIDATE_SORT_FIELDS);
 const isControlColumn = (id: string) => id === "select";
@@ -65,6 +77,9 @@ export function CandidatesClient({
   options,
   permissions,
   initialOverviewOpen,
+  initialOverviewData,
+  initialView,
+  initialBoard,
 }: {
   initialList: CandidatePage;
   preferenceKey: string;
@@ -73,25 +88,47 @@ export function CandidatesClient({
   permissions: CandidatePermissions;
   /** Выбор «Обзора» из cookie — сервер рисует его сразу в нужном состоянии. */
   initialOverviewOpen?: boolean;
+  /** «Обзор кандидатов» текущего месяца, загруженный сервером. */
+  initialOverviewData?: PeopleOverviewData;
+  /** Вид списка из cookie; нет cookie — undefined. */
+  initialView?: CandidatesView;
+  /** Доска с фильтрами по умолчанию — с сервера, когда выбран вид «доска». */
+  initialBoard?: CandidateBoardData;
 }) {
-  const overview = usePeopleOverview("candidates", accountId, "", initialOverviewOpen);
-  // Вид списка — таблица или доска по этапам; выбор помнится в этом браузере.
-  const viewKey = `candidates.view.${preferenceKey}`;
-  // null — выбор ещё не прочитан: список не рисуем, чтобы при выбранной доске
-  // не мелькала таблица.
-  const [view, setView] = useState<"table" | "board" | null>(null);
+  const overview = usePeopleOverview(
+    "candidates",
+    accountId,
+    "",
+    initialOverviewOpen,
+    initialOverviewData,
+  );
+  // Вид списка — таблица или доска по этапам; выбор помнится в этом браузере
+  // (localStorage и cookie). Сервер читает cookie и рисует нужный вид сразу.
+  const viewKey = candidatesViewKey(preferenceKey);
+  // null — выбор ещё не прочитан (нет cookie): список не рисуем, чтобы при
+  // выбранной доске не мелькала таблица.
+  const [view, setView] = useState<CandidatesView | null>(initialView ?? null);
   useEffect(() => {
-    let saved: string | null = null;
+    let saved: CandidatesView | undefined;
     try {
-      saved = localStorage.getItem(viewKey);
+      saved = parseCandidatesView(localStorage.getItem(viewKey));
     } catch {}
-    setView(saved === "board" ? "board" : "table");
-  }, [viewKey]);
-  const changeView = (next: "table" | "board") => {
+    // Выбор из cookie уже на экране; localStorage читаем только без неё и
+    // заодно переносим выбор в cookie — со следующего захода без ожидания.
+    if (initialView) return;
+    setView(saved ?? "table");
+    if (saved) writeViewCookie(preferenceKey, saved);
+  }, [viewKey, preferenceKey, initialView]);
+  // Доска с сервера годится только для первого показа: после смены вида
+  // доска монтируется заново и могла бы принять свои фильтры за серверные.
+  const [boardSeed, setBoardSeed] = useState(initialBoard);
+  const changeView = (next: CandidatesView) => {
+    setBoardSeed(undefined);
     setView(next);
     try {
       localStorage.setItem(viewKey, next);
     } catch {}
+    writeViewCookie(preferenceKey, next);
   };
   const board = view === "board";
   // Сколько анкет на доске: у неё свои запросы, таблица в это время не грузится.
@@ -464,6 +501,7 @@ export function CandidatesClient({
           onStatusSaved={statusSaved}
           onListChanged={refreshList}
           onTotal={setBoardTotal}
+          initial={boardSeed}
         />
       ) : (
       <div className="min-w-0 space-y-3" aria-busy={loading}>

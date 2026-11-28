@@ -216,6 +216,19 @@
       overflow-x: clip;
     }
   }
+  /* То же при открытом меню или окне: Radix (react-remove-scroll-bar)
+     ставит body[data-scroll-locked] { overflow: hidden !important }, body
+     снова становится scroll-контейнером, и всё sticky (верхняя панель базы
+     знаний, дерево страниц, шапки таблиц) прыгает вверх на величину
+     прокрутки. Меню при этом рисовалось сдвинутым прямо под курсор, и
+     отпускание кнопки мыши выбирало пункт («Дублировать страницу»).
+     Прокрутку страницы держит html, а колесо и касания блокирует сама
+     библиотека — overflow на body ей для этого не нужен. */
+  @media (min-width: 640px) {
+    html body[data-scroll-locked] {
+      overflow: clip !important;
+    }
+  }
   body {
     @apply bg-background text-foreground;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
@@ -251,48 +264,40 @@ input:-webkit-autofill {
  * (toolbars, menus); these vars cover the editor surface itself.
  * ────────────────────────────────────────────────────────────────── */
 
-.bn-sheerly {
+/* Тема BlockNote — `.bn-root` и `.bn-root[data-color-scheme="dark"]` на
+ * том же элементе, что и наш .bn-sheerly; с одним классом наши токены
+ * проигрывали (текст статьи #3f3f3f, ручка #cfcfcf, палитра BN). Корней
+ * два: сам редактор (`.bn-container`) и портал меню на <body> (без
+ * `.bn-container`: «/», меню блока, цвет, панель форматирования). Селектор
+ * `.bn-root.bn-sheerly[data-color-scheme]` (0,3,0) ловит оба и сильнее
+ * тёмной темы BN. */
+.bn-root.bn-sheerly[data-color-scheme] {
   /* Editor canvas */
   --bn-colors-editor-text:        hsl(var(--foreground));
   --bn-colors-editor-background:  hsl(var(--background));
 
-  /* Floating menus (slash, link, formatting toolbar) */
+  /* Плавающие меню («/», ссылка, панель форматирования). Остальные
+     переменные темы BN (menu-background, tooltip-*, hovered-text,
+     selected-*, disabled-*) CSS BlockNote 0.49 не читает — не задаём;
+     подсвеченный пункт меню серый (bg-accent), как во всём приложении. */
   --bn-colors-menu-text:          hsl(var(--popover-foreground));
-  --bn-colors-menu-background:    hsl(var(--popover));
-
-  /* Tooltips — тёмно-графитовый фон, единый стиль со shadcn Tooltip
-     (components/ui/tooltip.tsx: bg-neutral-900 / text-neutral-50).
-     Цвет фиксированный в обеих темах, чтобы подсказка не сливалась
-     с light-фоном меню/popover'ов BlockNote. */
-  --bn-colors-tooltip-text:       hsl(0 0% 98%);
-  --bn-colors-tooltip-background: hsl(0 0% 9%);
-
-  /* Hover states inside menus */
-  --bn-colors-hovered-text:       hsl(var(--accent-foreground));
   --bn-colors-hovered-background: hsl(var(--accent));
-
-  /* Selected-item state */
-  --bn-colors-selected-text:       hsl(var(--primary-foreground));
-  --bn-colors-selected-background: hsl(var(--primary));
-
-  /* Disabled */
-  --bn-colors-disabled-text:       hsl(var(--muted-foreground));
-  --bn-colors-disabled-background: hsl(var(--muted));
 
   /* Borders, drag-handle */
   --bn-colors-border:    hsl(var(--border));
   --bn-colors-shadow:    hsl(var(--border));
-  --bn-colors-side-menu: hsl(var(--muted-foreground));
+  /* Читают линия у вложенных блоков, подсказка пустого блока и «+» в
+     раскрывающемся блоке — тише вторичного текста (у BN было #cfcfcf). */
+  --bn-colors-side-menu: hsl(var(--muted-foreground) / 0.5);
 
   /* Geometry: пуш-через DS-радиус */
   --bn-border-radius: var(--radius);
 
-  /* Typography: Sheerly не задаёт явный font в DS — оставляем body
-     stack из tailwind (system-ui), убирая Inter из BlockNote. */
+  /* Typography: Inter, как во всём приложении (font-sans в
+     tailwind.config.ts) — docs/design-system.md → «Типографика». */
   --bn-font-family:
-    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-    "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans",
-    sans-serif;
+    var(--font-inter), ui-sans-serif, system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
 /* Highlight palette (BlockNote built-in /color command).
@@ -302,8 +307,10 @@ input:-webkit-autofill {
    вычитываются из этих --bn-colors-highlights-{c}-* переменных. Привязка
    гарантирует, что текст-highlight в редакторе, swatch-чипы в picker'е
    (`<span class="bn-color-icon" data-text-color={c}>A</span>`), и тинт
-   KB-иконок берут одни и те же значения. */
-.bn-sheerly {
+   KB-иконок берут одни и те же значения. Селектор — как у мостика выше:
+   иначе образцы в портале меню «Цвет» шли из палитры BN, а текст — из
+   нашей, и цвета расходились. */
+.bn-root.bn-sheerly[data-color-scheme] {
   --bn-colors-highlights-gray-text:       var(--palette-gray-fg);
   --bn-colors-highlights-gray-background: var(--palette-gray-bg);
   --bn-colors-highlights-brown-text:       var(--palette-brown-fg);
@@ -501,17 +508,33 @@ input:-webkit-autofill {
    (в node_modules/@blocknote/shadcn/dist/style.css), что возвращает
    браузерный default purple/blue. Перебиваем — chip должен выглядеть
    как обычный bold текст с иконкой. Hover — лёгкий accent-bg. */
-.bn-sheerly .bn-editor a[data-kb-page-mention],
+/* Упоминание страницы из корзины — серым и зачёркнутым (классы в
+ * kb-page-mention.tsx); это правило его не трогает. */
+.bn-sheerly .bn-editor a[data-kb-page-mention]:not([data-kb-page-mention-deleted]),
 .bn-sheerly .bn-editor a[data-kb-staff-mention] {
   color: hsl(var(--foreground));
   text-decoration: none !important;
   -webkit-text-decoration: none !important;
   font-weight: 600;
 }
-.bn-sheerly .bn-editor a[data-kb-page-mention]:hover,
+.bn-sheerly .bn-editor a[data-kb-page-mention]:not([data-kb-page-mention-deleted]):hover,
 .bn-sheerly .bn-editor a[data-kb-staff-mention]:hover {
   background-color: hsl(var(--accent));
   color: hsl(var(--foreground));
+}
+/* Обычная ссылка в тексте статьи (в том числе ссылки из импорта Notion)
+ * — синяя DS с тихим подчёркиванием, а не браузерная #0000EE / фиолетовая
+ * посещённая, которую возвращает `color: revert` у BN. */
+/* Ссылки коллекции (названия записей) — свой вид, их не трогаем. */
+.bn-sheerly .bn-editor a:not([data-kb-page-mention]):not([data-kb-staff-mention]):not(.kb-collection-table-title-link):not(.kb-collection-row-main),
+.bn-sheerly .bn-editor a:not([data-kb-page-mention]):not([data-kb-staff-mention]):not(.kb-collection-table-title-link):not(.kb-collection-row-main):visited {
+  color: hsl(var(--brand-text));
+  text-decoration: underline;
+  text-decoration-color: hsl(var(--brand) / 0.35);
+  text-underline-offset: 3px;
+}
+.bn-sheerly .bn-editor a:not([data-kb-page-mention]):not([data-kb-staff-mention]):not(.kb-collection-table-title-link):not(.kb-collection-row-main):hover {
+  text-decoration-color: currentColor;
 }
 
 /* ──────────────────────────────────────────────────────────────────
@@ -546,9 +569,13 @@ input:-webkit-autofill {
  * BN'овские (которые не используют scope).
  * ──────────────────────────────────────────────────────────────── */
 .bn-sheerly .bn-editor .bn-thread-mark:not([data-orphan="true"]) {
-  background-color: hsl(38 92% 50% / 0.18);
+  /* Тон amber по рецепту DS ({c}-500 / 10–15). Заливка близка к выделению
+     текста «оранжевым», поэтому обсуждение отличает подчёркивание 2px
+     полупрозрачным amber — заметное, но не кричащее (было 18% и линия
+     2px сплошным цветом). */
+  background-color: rgb(245 158 11 / 0.12);
   text-decoration: underline;
-  text-decoration-color: hsl(38 92% 50%);
+  text-decoration-color: rgb(245 158 11 / 0.55);
   text-decoration-thickness: 2px;
   text-underline-offset: 3px;
   text-decoration-skip-ink: none;
@@ -581,7 +608,7 @@ input:-webkit-autofill {
 }
 .bn-sheerly .bn-editor .bn-thread-mark:not([data-orphan="true"]):hover,
 .bn-sheerly .bn-editor .bn-thread-mark.bn-thread-mark-selected {
-  background-color: hsl(38 92% 50% / 0.32);
+  background-color: rgb(245 158 11 / 0.24);
 }
 
 /* Gutter-индикатор рендерится через React (KbThreadGutterIndicators
@@ -673,69 +700,108 @@ input:-webkit-autofill {
    Изменение через CSS-переменную --level, которую BlockNote
    подставляет в font-size; data-level селекторы остаются нативные. */
 .bn-sheerly [data-content-type="heading"] {
-  --level: 1.875em;
+  --level: 1.75em; /* 28px — шкала DS */
 }
 .bn-sheerly [data-content-type="heading"][data-level="2"] {
-  --level: 1.5em;
+  --level: 1.25em; /* 20px */
 }
 .bn-sheerly [data-content-type="heading"][data-level="3"] {
-  --level: 1.25em;
+  --level: 1em; /* 16px */
+}
+.bn-sheerly .bn-block-content[data-content-type="heading"] .bn-inline-content {
+  font-weight: 600;
+  letter-spacing: 0;
+}
+/* Заголовки статьи — настоящие <h1>/<h2>, на них действует общий
+ * tracking-tight. По шкале DS разрядка только у 28px (-0.25px); на 20 и
+ * 16px сжатие выглядело другим шрифтом. */
+.bn-sheerly .bn-block-content[data-content-type="heading"][data-level="1"] .bn-inline-content {
+  letter-spacing: -0.25px;
 }
 /* Те же значения для prev-level (BlockNote использует их при
    определении высоты side-menu и заглушек до загрузки content). */
 .bn-sheerly [data-prev-level="1"] {
-  --prev-level: 1.875em;
+  --prev-level: 1.75em;
 }
 .bn-sheerly [data-prev-level="2"] {
-  --prev-level: 1.5em;
+  --prev-level: 1.25em;
 }
 .bn-sheerly [data-prev-level="3"] {
-  --prev-level: 1.25em;
+  --prev-level: 1em;
 }
 
 /* Side-menu (drag-handle + add-block buttons слева от блока). По
    умолчанию иконки 16px, плотно прижаты к тексту. Делаем компактнее
    и сдвигаем заметно левее, чтобы они не «налипали» на буквы. */
-.bn-sheerly .bn-side-menu {
-  /* align-items: flex-start вместо center — иначе у tall-блоков
+.bn-root.bn-sheerly .bn-side-menu {
+  /* .bn-root — `.bn-shadcn .bn-side-menu { align-items: center }` BN той же
+     специфичности подключается позже и иначе побеждает.
+     align-items: flex-start вместо center — иначе у tall-блоков
      (H1/H2 с heading-padding) кнопки центрируются по контейнеру и
      уезжают сильно вверх над текстом. Прижимаем к верху + добавляем
      padding-top равный padding'у блок-content'а — так кнопки
      оказываются на baseline первой строки текста, а не парят над. */
   align-items: flex-start;
   gap: 10px;
-  /* Базовый paragraph: bn-block-content padding 9px → даём такое же
-     padding-top, чтобы плюс/drag-handle совпадал с верхом глифов
-     первой строки текста. */
-  padding-top: 9px;
+  /* Кнопки 20px по середине первой строки абзаца: у блока сверху 9px,
+     строка 16 × 1.7 ≈ 27px → центр на 22.6px, кнопке — 22.6 − 10 ≈ 13px.
+     Прежние 5px считались от пункта списка, и у абзаца кнопки висели на
+     8px выше строки (замечание владельца 28.11.2026). */
+  padding-top: 13px;
   transform: translateX(-14px);
 }
-/* H1/H2/H3 имеют heading-padding 22px (см. правило выше) — копируем
-   эту цифру в side-menu, плюс небольшой visual offset чтобы кнопки
-   стояли по центру первой строки заголовка, а не к её верху. */
+/* Пункты списков: сверху 2px → центр строки на 15.6px, кнопке ≈ 6px.
+   Переключаемый список (toggle) этого отступа не получает — у него 9px,
+   как у абзаца. */
+.bn-sheerly .bn-side-menu[data-block-type="bulletListItem"],
+.bn-sheerly .bn-side-menu[data-block-type="numberedListItem"],
+.bn-sheerly .bn-side-menu[data-block-type="checkListItem"] {
+  padding-top: 6px;
+}
+/* Заголовки: сверху 22px, строка --level × 1.7 → 22 + строка / 2 − 10. */
 .bn-sheerly .bn-side-menu[data-block-type="heading"][data-level="1"] {
-  padding-top: 30px;
+  padding-top: 36px;
 }
 .bn-sheerly .bn-side-menu[data-block-type="heading"][data-level="2"] {
-  padding-top: 28px;
+  padding-top: 29px;
 }
 .bn-sheerly .bn-side-menu[data-block-type="heading"][data-level="3"] {
   padding-top: 26px;
 }
+/* Блоки со своим внутренним отступом — по первой строке текста внутри:
+   выноска (py-3, строка ≈ 26px) — центр ≈ 34px; таблица (обёртка 9px +
+   ячейка 5px) — ≈ 37px; код (поле 24px сверху у pre) — ≈ 46px. */
+.bn-sheerly .bn-side-menu[data-block-type="callout"] {
+  padding-top: 24px;
+}
+.bn-sheerly .bn-side-menu[data-block-type="table"] {
+  padding-top: 27px;
+}
+.bn-sheerly .bn-side-menu[data-block-type="codeBlock"] {
+  padding-top: 36px;
+}
 
-.bn-sheerly .bn-side-menu .bn-button {
+/* «+» и ручка — одинаковые: 20px, значок 16px серым, при наведении
+ * темнеет (DS «Иконки»). Селектор со .bn-root — правила BN специфичнее
+ * одного класса, значок ручки иначе вырастал до 24px. */
+.bn-root.bn-sheerly .bn-side-menu .bn-button {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 4px;
+  color: hsl(var(--muted-foreground));
+  opacity: 1;
+  transition: color 120ms ease, background-color 120ms ease;
+}
+.bn-root.bn-sheerly .bn-side-menu .bn-button:hover,
+.bn-root.bn-sheerly .bn-side-menu .bn-button[data-state="open"] {
+  background-color: hsl(var(--accent));
+  color: hsl(var(--foreground));
+}
+.bn-root.bn-sheerly .bn-side-menu .bn-button svg {
   width: 16px;
   height: 16px;
-  padding: 0;
-  opacity: 0.5;
-  transition: opacity 120ms ease;
-}
-.bn-sheerly .bn-side-menu .bn-button:hover {
-  opacity: 1;
-}
-.bn-sheerly .bn-side-menu svg {
-  width: 13px;
-  height: 13px;
+  color: currentColor;
 }
 
 /* Side-menu buttons (drag-handle / «+») и любые `[data-tip]` теперь
@@ -759,7 +825,7 @@ input:-webkit-autofill {
   padding: 6px 12px !important;
   font-size: 12px !important;
   line-height: 1.2 !important;
-  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  box-shadow: theme('boxShadow.lg');
 }
 /* Arrow рендерится как <span> (PopperPrimitive.Arrow → span-обёртка
    над svg, см. @radix-ui/react-popper), а не svg. BlockNote назначает
@@ -842,36 +908,30 @@ input:-webkit-autofill {
   gap: 2px !important;
   display: flex !important;
   flex-direction: column !important;
-  border-radius: 12px !important;
+  border-radius: 10px !important;
   border: 1px solid hsl(var(--border)) !important;
   background-color: hsl(var(--popover)) !important;
-  box-shadow:
-    0 12px 32px rgb(0 0 0 / 0.12),
-    0 2px 6px rgb(0 0 0 / 0.05) !important;
+  box-shadow: theme('boxShadow.md') !important;
 }
 
-/* Group label («Заголовки», «Базовые блоки», ...): uppercase 11/600
- * с lettespacing 0.6 и горизонтальными padding'ами 8 — соответствует
- * `g1H/g2H/...` в дизайне. */
 .bn-suggestion-menu .bn-suggestion-menu-label {
-  font-size: 11px !important;
-  font-weight: 600 !important;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  /* Подпись группы — 12 / 500 обычным регистром (DS, «База знаний»). */
+  font-size: 12px !important;
+  font-weight: 500 !important;
   color: hsl(var(--muted-foreground)) !important;
-  padding: 8px 8px 4px 8px !important;
+  padding: 8px 12px 4px 12px !important;
 }
 
-/* Item: упрощённая компоновка (icon-chip 22×22 + title 13/500 в одну
+/* Item: упрощённая компоновка (значок 16 + title 14/400 в одну
  * строку, без subtext'а в основном списке). Subtext всё ещё в DOM —
  * скрываем display:none, чтобы будущий hover-hold tooltip мог его
  * вытащить, не меняя BN-render. */
 .bn-suggestion-menu .bn-suggestion-menu-item {
-  padding: 4px 8px !important;
+  padding: 8px 12px !important;
   gap: 10px !important;
   border-radius: 6px !important;
-  font-size: 13px !important;
-  font-weight: 500 !important;
+  font-size: 14px !important;
+  font-weight: 400 !important;
   /* iOS Safari НЕ синтезирует `click` по тапу на неинтерактивном
    * <div> без `cursor: pointer` (React вешает onClick через делегацию
    * на корень, а не inline onclick — для таких элементов iOS требует
@@ -883,24 +943,24 @@ input:-webkit-autofill {
   cursor: pointer !important;
 }
 .bn-suggestion-menu .bn-suggestion-menu-item > div[data-position="left"] {
-  width: 22px !important;
-  height: 22px !important;
+  /* Значок пункта — 16px серым, без подложки (как пункты меню приложения). */
+  width: 16px !important;
+  height: 16px !important;
   padding: 0 !important;
-  border-radius: 4px !important;
-  background-color: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
 }
 .bn-suggestion-menu .bn-suggestion-menu-item > div[data-position="left"] svg {
-  width: 14px !important;
-  height: 14px !important;
+  width: 16px !important;
+  height: 16px !important;
 }
-/* Title row внутри `.flex-1` — оставляем text-base override на 13px. */
+/* Title row внутри `.flex-1` — 14px, как пункты меню приложения. */
 .bn-suggestion-menu .bn-suggestion-menu-item > .flex-1 > div:first-child {
-  font-size: 13px !important;
-  font-weight: 500;
+  font-size: 14px !important;
+  font-weight: 400;
   line-height: 1.3;
 }
 /* Subtext styling в общих SuggestionMenu (`@`-меню упоминаний). По
@@ -922,6 +982,25 @@ input:-webkit-autofill {
   > .flex-1
   > div:nth-child(2) {
   display: none !important;
+}
+
+/* Внутренние блоки пункта (заголовок, подпись) BN помечает тем же классом
+ * `bn-suggestion-menu-item`, и отступ 8×12 ложился на них второй раз:
+ * пункт «@» вырастал до 66px. Отступ — только у самого пункта; пустая
+ * вторая строка места не занимает. */
+.bn-suggestion-menu .bn-suggestion-menu-item .bn-suggestion-menu-item {
+  padding: 0 !important;
+}
+.bn-suggestion-menu .bn-suggestion-menu-item > .flex-1 > div:empty {
+  display: none !important;
+}
+
+/* Меню «@»: слева аватар 20px (значок страницы — 16px). */
+.bn-suggestion-menu.kb-mention-menu
+  .bn-suggestion-menu-item
+  > div[data-position="left"] {
+  width: 20px !important;
+  height: 20px !important;
 }
 
 /* Шорткат-подсказка (badge «⌘⇧6» и т.п.) — BN-shadcn рендерит её как
@@ -988,9 +1067,7 @@ input:-webkit-autofill {
   background-color: hsl(var(--card));
   border: 1px solid hsl(var(--border));
   color: hsl(var(--foreground));
-  box-shadow:
-    0 8px 20px rgb(0 0 0 / 0.10),
-    0 1px 4px rgb(0 0 0 / 0.05);
+  box-shadow: theme('boxShadow.md');
   pointer-events: none;
   animation: kb-slash-tip-in 120ms ease-out;
 }
@@ -1047,9 +1124,7 @@ input:-webkit-autofill {
   border-radius: 10px !important;
   padding: 6px !important;
   border: 1px solid hsl(var(--border)) !important;
-  box-shadow:
-    0 12px 24px rgb(0 0 0 / 0.12),
-    0 2px 6px rgb(0 0 0 / 0.05) !important;
+  box-shadow: theme('boxShadow.md') !important;
 }
 [data-slot="select-content"] [data-slot="select-item"] {
   border-radius: 6px;
@@ -1063,11 +1138,9 @@ input:-webkit-autofill {
 [data-slot="select-content"] [data-slot="select-item"] svg {
   width: 16px;
   height: 16px;
-  stroke-width: 1.75;
-  /* react-icons/ri (RiText / RiH1 / ...) — filled-paths, муто-серые
-   * по дефолту приглушают визуальный вес. На hover/active — foreground.
-   * Selected (data-state=checked) рисует чек-mark иконку справа,
-   * её же приглушаем, но НЕ при focus / hover (дальше). */
+  /* Значки серые, на hover/active — foreground. Выбранный пункт
+   * (data-state=checked) рисует галочку справа, её тоже приглушаем,
+   * но НЕ при focus / hover (дальше). */
   color: hsl(var(--muted-foreground));
 }
 [data-slot="select-content"] [data-slot="select-item"]:hover svg,
@@ -1088,34 +1161,35 @@ input:-webkit-autofill {
   border-radius: 10px !important;
   border: 1px solid hsl(var(--border)) !important;
   background-color: hsl(var(--popover)) !important;
-  box-shadow:
-    0 8px 24px rgb(0 0 0 / 0.10),
-    0 2px 6px rgb(0 0 0 / 0.05) !important;
+  box-shadow: theme('boxShadow.md') !important;
 }
-/* Кнопки: компактнее, иконки приглушены (foreground при hover/active).
- *
- * BN-default использует react-icons/ri (RiBold, RiH1 и т.д.) — это
- * filled-paths, на них `stroke-width` не влияет. Зато influence на
- * визуальный вес даёт `color` (через currentColor у SVG fill'а).
- * Дефолтная яркая «жирность» уходит, если выкрасить иконку в
- * `text-muted-foreground` для idle и `text-foreground` для hover/
- * active. Пользователь явно просил «никаких жирных иконок» — это
- * именно про visual weight, не про stroke. */
+/* Кнопки 32px, как в остальных панелях приложения; значки Lucide
+ * (подмена react-icons), серые, на hover/active — foreground. */
 .bn-sheerly .bn-toolbar.bn-formatting-toolbar button,
 .bn-formatting-toolbar button {
-  height: 28px;
-  min-width: 28px;
+  height: 32px;
+  min-width: 32px;
   padding: 0 5px;
   border-radius: 6px;
   color: hsl(var(--muted-foreground));
 }
 .bn-sheerly .bn-toolbar.bn-formatting-toolbar button:hover,
 .bn-formatting-toolbar button:hover,
-.bn-sheerly .bn-toolbar.bn-formatting-toolbar button[data-state="on"],
-.bn-formatting-toolbar button[data-state="on"],
 .bn-sheerly .bn-toolbar.bn-formatting-toolbar button[data-state="open"],
 .bn-formatting-toolbar button[data-state="open"] {
   color: hsl(var(--foreground));
+}
+/* Включённое (жирный, выравнивание) — как активный инструмент приложения:
+ * синий значок на подложке brand/10, а не просто темнее. */
+.bn-sheerly .bn-toolbar.bn-formatting-toolbar button[data-state="on"],
+.bn-formatting-toolbar button[data-state="on"] {
+  background-color: hsl(var(--brand) / 0.1);
+  color: hsl(var(--brand-text));
+}
+/* Кнопка цвета: «A» в цвете текста без рамки-квадратика вокруг. */
+.bn-formatting-toolbar button[aria-label="Цвета"] .bn-color-icon {
+  border: 0 !important;
+  box-shadow: none !important;
 }
 .bn-sheerly .bn-toolbar.bn-formatting-toolbar button svg,
 .bn-formatting-toolbar button svg {
@@ -1163,7 +1237,7 @@ input:-webkit-autofill {
  * `border-none`, оставляем но даём compact-padding. */
 .bn-sheerly .bn-toolbar.bn-formatting-toolbar [data-slot="select-trigger"],
 .bn-formatting-toolbar [data-slot="select-trigger"] {
-  height: 28px;
+  height: 32px;
   padding: 0 8px;
   font-size: 13px;
   font-weight: 500;
@@ -1223,7 +1297,7 @@ input:-webkit-autofill {
   background-color: hsl(var(--popover));
   border-top: 1px solid hsl(var(--border));
   border-bottom: 1px solid hsl(var(--border));
-  box-shadow: 0 2px 16px rgb(0 0 0 / 0.12);
+  box-shadow: theme('boxShadow.md');
 }
 .kb-mobile-toolbar-blocktype {
   display: inline-flex;
@@ -1275,6 +1349,9 @@ input:-webkit-autofill {
   border-radius: 8px;
   color: hsl(var(--muted-foreground));
 }
+.kb-mobile-toolbar-btn:disabled {
+  opacity: 0.3;
+}
 .kb-mobile-toolbar-btn[data-active] {
   background-color: hsl(var(--accent));
   color: hsl(var(--foreground));
@@ -1298,7 +1375,7 @@ input:-webkit-autofill {
   flex-direction: column;
   gap: 2px;
   padding: 6px;
-  border-radius: 14px;
+  border-radius: 10px;
   border: 1px solid hsl(var(--border));
   background-color: hsl(var(--popover));
   box-shadow:
@@ -1317,7 +1394,7 @@ input:-webkit-autofill {
   width: 100%;
   padding: 11px 12px;
   border-radius: 10px;
-  font-size: 15px;
+  font-size: 16px;
   color: hsl(var(--foreground));
   text-align: left;
 }
@@ -1346,7 +1423,7 @@ input:-webkit-autofill {
   display: flex;
   flex-direction: column;
   background-color: hsl(var(--background));
-  box-shadow: 0 -8px 30px rgb(0 0 0 / 0.18);
+  box-shadow: theme('boxShadow.lg');
   overscroll-behavior: contain;
   border-top-left-radius: 16px;
   border-top-right-radius: 16px;
@@ -1369,7 +1446,7 @@ input:-webkit-autofill {
   border-bottom: 1px solid hsl(var(--border));
 }
 .kb-mobile-comment-sheet-title {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
   color: hsl(var(--foreground));
 }
@@ -1455,8 +1532,7 @@ input:-webkit-autofill {
 .kb-mobile-fullsheet-section {
   padding: 14px 16px 6px;
   font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-weight: 500;
   color: hsl(var(--muted-foreground));
 }
 .kb-mobile-fullsheet-item {
@@ -1489,7 +1565,7 @@ input:-webkit-autofill {
   width: 30px;
   height: 30px;
   flex-shrink: 0;
-  border-radius: 7px;
+  border-radius: 6px;
   border: 1px solid hsl(var(--border));
   font-size: 16px;
   font-weight: 700;
@@ -1548,22 +1624,32 @@ input:-webkit-autofill {
 /* ── Block menu / Drag-handle menu (frame 07 · W8wDJ) ──────────────
  * BN's `.bn-menu-dropdown.bn-drag-handle-menu` — shadcn DropdownMenu.
  * Дизайн: 220px ширина, padding 6, gap 1, items padding [8,10] gap 10. */
+/* Пункты — как DropdownMenuItem приложения (14 / 400, отступ 6×8).
+ * overflow: visible — подменю «Цвет» BN рисует ВНУТРИ этого меню без
+ * портала, и `overflow-x: hidden` из его классов обрезало подменю целиком:
+ * «Цвет» не открывался. */
 .bn-menu-dropdown.bn-drag-handle-menu {
   min-width: 220px !important;
-  padding: 6px !important;
+  padding: 4px !important;
+  overflow: visible !important;
   border-radius: 10px !important;
   border: 1px solid hsl(var(--border)) !important;
-  box-shadow:
-    0 12px 24px rgb(0 0 0 / 0.12),
-    0 2px 6px rgb(0 0 0 / 0.05) !important;
+  box-shadow: theme('boxShadow.md') !important;
 }
 .bn-menu-dropdown.bn-drag-handle-menu .bn-menu-item,
 .bn-menu-dropdown.bn-drag-handle-menu [role="menuitem"] {
-  padding: 8px 10px !important;
+  padding: 6px 8px !important;
   border-radius: 6px !important;
-  font-size: 13px !important;
-  font-weight: 500 !important;
-  gap: 10px !important;
+  font-size: 14px !important;
+  font-weight: 400 !important;
+  gap: 8px !important;
+}
+/* Рамка фокуса пункта — подложка, как у DropdownMenuItem, а не синий
+ * прямоугольник. */
+.bn-menu-dropdown.bn-drag-handle-menu [role="menuitem"]:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+  background-color: hsl(var(--accent));
 }
 .bn-menu-dropdown.bn-drag-handle-menu [role="menuitem"] svg {
   width: 16px !important;
@@ -1577,7 +1663,7 @@ input:-webkit-autofill {
 .bn-menu-dropdown.bn-drag-handle-menu .bn-kb-menu-item-label {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 .bn-menu-dropdown.bn-drag-handle-menu .bn-kb-menu-item-destructive,
 .bn-menu-dropdown.bn-drag-handle-menu .bn-kb-menu-item-destructive svg {
@@ -1607,9 +1693,7 @@ input:-webkit-autofill {
   padding: 8px !important;
   border-radius: 10px !important;
   border: 1px solid hsl(var(--border)) !important;
-  box-shadow:
-    0 12px 24px rgb(0 0 0 / 0.12),
-    0 2px 6px rgb(0 0 0 / 0.05) !important;
+  box-shadow: theme('boxShadow.md') !important;
   /* Tooltip chip'а рендерится НАД dropdown'ом (bottom:100%) — не
      обрезаем его краем контейнера. */
   overflow: visible !important;
@@ -1619,10 +1703,8 @@ input:-webkit-autofill {
 .bn-color-picker-dropdown.kb-color-picker
   [class*="DropdownMenuLabel"] {
   grid-column: 1 / -1;
-  font-size: 11px !important;
-  font-weight: 600 !important;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: 12px !important;
+  font-weight: 500 !important;
   color: hsl(var(--muted-foreground)) !important;
   padding: 6px 4px 2px 4px !important;
 }
@@ -1701,11 +1783,9 @@ input:-webkit-autofill {
   max-width: calc(100vw - 32px);
   background-color: hsl(var(--card));
   border: 1px solid hsl(var(--border));
-  border-radius: 12px;
+  border-radius: 10px;
   padding: 16px;
-  box-shadow:
-    0 12px 24px rgb(0 0 0 / 0.12),
-    0 2px 6px rgb(0 0 0 / 0.05);
+  box-shadow: theme('boxShadow.md');
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -1737,7 +1817,7 @@ input:-webkit-autofill {
 .kb-file-panel-tab[data-active] {
   color: hsl(var(--foreground));
   background-color: hsl(var(--card));
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
+  box-shadow: theme('boxShadow.sm');
 }
 
 .kb-file-panel-body {
@@ -1777,7 +1857,7 @@ input:-webkit-autofill {
 }
 
 .kb-file-panel-hint {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   color: hsl(var(--muted-foreground));
 }
@@ -1829,7 +1909,7 @@ input:-webkit-autofill {
   height: 3px;
   width: 100%;
   background-color: hsl(var(--border));
-  border-radius: 2px;
+  border-radius: 4px;
   overflow: hidden;
 }
 .bn-sheerly .kb-upload-progress-bar-fill {
@@ -1837,7 +1917,7 @@ input:-webkit-autofill {
   inset: 0 auto 0 0;
   width: 30%;
   background-color: hsl(var(--brand) / 0.7);
-  border-radius: 2px;
+  border-radius: 4px;
   animation: kb-upload-progress-slide 1.4s ease-in-out infinite;
 }
 @keyframes kb-upload-progress-slide {
@@ -1984,7 +2064,7 @@ input:-webkit-autofill {
   width: 6px;
   height: 36px;
   background-color: hsl(var(--foreground) / 0.3);
-  border-radius: 3px;
+  border-radius: 4px;
   border: 1.5px solid hsl(var(--background));
   top: 50%;
   transform: translateY(-50%);
@@ -2571,22 +2651,32 @@ button.kb-gallery-menu-item {
   justify-content: space-between;
   gap: 12px;
 }
+/* Ряд вкладок видов с кнопками справа — как «вкладки представления»
+ * (workspace-tabs.module.css): линия под всем рядом, активная вкладка
+ * подчёркнута синим. */
+.bn-sheerly .kb-collection-toolbar {
+  border-bottom: 1px solid hsl(var(--border));
+}
+/* Заголовок коллекции — как H2 статьи (20 / 600): он ниже заголовка
+ * страницы и не спорит с ним. */
 .bn-sheerly .kb-collection-title {
   display: inline-flex;
   min-width: 0;
   align-items: center;
   gap: 8px;
   color: hsl(var(--foreground));
-  font-size: 32px;
-  font-weight: 760;
-  line-height: 1.15;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.4;
 }
 .bn-sheerly .kb-collection-title-button {
   min-width: 0;
   max-width: min(560px, 62vw);
   overflow: hidden;
-  border-radius: 7px;
-  padding: 2px 3px;
+  border-radius: 6px;
+  /* Поле наведения уходит влево, текст стоит ровно над вкладками. */
+  margin-inline-start: -4px;
+  padding: 2px 4px;
   color: inherit;
   font: inherit;
   text-align: left;
@@ -2602,34 +2692,38 @@ button.kb-gallery-menu-item {
 }
 .bn-sheerly .kb-collection-title-input {
   width: min(560px, 62vw);
-  height: 44px;
-  border-radius: 8px;
+  height: 36px;
+  border-radius: 6px;
   padding-inline: 8px;
-  font-size: 32px;
-  font-weight: 760;
+  font-size: 20px;
+  font-weight: 600;
 }
+/* Счётчик — как у заголовка страницы-списка (TablePageHeader). */
 .bn-sheerly .kb-collection-count {
   display: inline-flex;
-  min-width: 22px;
-  height: 22px;
+  min-width: 24px;
+  height: 24px;
   align-items: center;
   justify-content: center;
-  border-radius: 999px;
-  background-color: hsl(var(--muted) / 0.75);
+  border-radius: 6px;
+  background-color: hsl(var(--muted));
   color: hsl(var(--muted-foreground));
+  padding-inline: 6px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
   line-height: 1;
 }
 .bn-sheerly .kb-collection-view-add-inline {
   position: relative;
   display: inline-flex;
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   flex: 0 0 auto;
+  align-self: center;
   align-items: center;
   justify-content: center;
-  border-radius: 999px;
+  border-radius: 6px;
   color: hsl(var(--muted-foreground));
   transition:
     background-color 120ms ease,
@@ -2641,9 +2735,7 @@ button.kb-gallery-menu-item {
 }
 .kb-collection-create-view-menu {
   width: min(560px, calc(100vw - 24px));
-  border-radius: 12px;
   padding: 16px;
-  box-shadow: 0 18px 42px hsl(var(--foreground) / 0.15);
 }
 .kb-collection-create-view-panel {
   display: grid;
@@ -2651,8 +2743,8 @@ button.kb-gallery-menu-item {
 }
 .kb-collection-create-view-title {
   color: hsl(var(--muted-foreground));
-  font-size: 13px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 500;
 }
 .kb-collection-create-view-grid {
   display: grid;
@@ -2664,49 +2756,77 @@ button.kb-gallery-menu-item {
   min-height: 88px;
   place-items: center;
   gap: 8px;
-  border-radius: 12px;
+  border-radius: 8px;
   color: hsl(var(--foreground));
-  font-size: 14px;
-  font-weight: 650;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid hsl(var(--border));
 }
 .kb-collection-create-view-option:hover:not(:disabled) {
-  background-color: hsl(var(--accent) / 0.62);
+  background-color: hsl(var(--accent));
 }
 .kb-collection-create-view-option:disabled {
   cursor: not-allowed;
   opacity: 0.38;
 }
+/* Между текстами вкладок 20px, но это поля самих вкладок (по 10px), а не
+ * промежуток: зона нажатия и перетаскивания сплошная, а подчёркивание
+ * рисует ::after только под текстом. Первая вкладка сдвинута на -10px,
+ * чтобы текст стоял ровно под заголовком. */
 .bn-sheerly .kb-collection-view-tabs {
   position: relative;
   display: inline-flex;
   min-width: 0;
   flex: 1 1 auto;
-  align-items: center;
-  gap: 6px;
+  align-self: stretch;
+  align-items: stretch;
+  gap: 0;
+  margin-inline-start: -10px;
   overflow: visible;
 }
 .bn-sheerly .kb-collection-view-tab {
   position: relative;
   display: inline-flex;
   max-width: 220px;
-  min-height: 32px;
+  min-height: 40px;
   flex: 0 0 auto;
   align-items: center;
-  gap: 7px;
-  border-radius: 999px;
-  padding: 0 11px;
+  gap: 6px;
+  border-radius: 0;
+  padding: 0 10px;
   color: hsl(var(--muted-foreground));
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 500;
   white-space: nowrap;
-  transition:
-    background-color 120ms ease,
-    color 120ms ease;
+  transition: color 120ms ease;
 }
-.bn-sheerly .kb-collection-view-tab:hover,
-.bn-sheerly .kb-collection-view-tab[data-active] {
-  background-color: hsl(var(--accent) / 0.72);
+.bn-sheerly .kb-collection-view-tab::after {
+  content: "";
+  position: absolute;
+  right: 10px;
+  bottom: -1px;
+  left: 10px;
+  height: 2px;
+  background-color: transparent;
+  transition: background-color 120ms ease;
+}
+.bn-sheerly .kb-collection-view-tab:hover {
   color: hsl(var(--foreground));
+}
+.bn-sheerly .kb-collection-view-tab[data-active] {
+  color: hsl(var(--brand-text));
+  font-weight: 600;
+}
+.bn-sheerly .kb-collection-view-tab[data-active]::after {
+  background-color: hsl(var(--brand));
+}
+/* Своих кнопок шапки много — рамка фокуса как у Button (--ring), а не
+ * системная рамка браузера. */
+.bn-sheerly .kb-collection-view-tab:focus-visible,
+.bn-sheerly .kb-collection-view-add-inline:focus-visible,
+.bn-sheerly .kb-collection-title-button:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
 }
 .bn-sheerly .kb-collection-view-tab[data-active] svg {
   color: hsl(var(--brand-text));
@@ -2740,18 +2860,13 @@ button.kb-gallery-menu-item {
   inset: auto auto 0 0;
   z-index: -1;
   display: inline-flex;
-  gap: 6px;
+  gap: 0;
   visibility: hidden;
   pointer-events: none;
 }
 .kb-collection-view-menu {
   width: min(300px, calc(100vw - 24px));
-  border-radius: 12px;
   padding: 10px;
-  box-shadow: 0 18px 42px hsl(var(--foreground) / 0.15);
-}
-.kb-collection-view-source-row {
-  color: hsl(var(--muted-foreground));
 }
 .kb-collection-view-description-field {
   display: grid;
@@ -2759,15 +2874,14 @@ button.kb-gallery-menu-item {
   padding: 8px 4px 2px;
   color: hsl(var(--muted-foreground));
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 500;
 }
-.kb-collection-view-description-input,
-.bn-sheerly .kb-collection-settings-description-input {
+.kb-collection-view-description-input {
   width: 100%;
   min-height: 64px;
   resize: none;
   border: 1px solid hsl(var(--border) / 0.72);
-  border-radius: 9px;
+  border-radius: 6px;
   background-color: hsl(var(--background));
   color: hsl(var(--foreground));
   padding: 8px 10px;
@@ -2776,31 +2890,26 @@ button.kb-gallery-menu-item {
   line-height: 1.35;
   outline: none;
 }
-.kb-collection-view-description-input:focus,
-.bn-sheerly .kb-collection-settings-description-input:focus {
+.kb-collection-view-description-input:focus {
   border-color: hsl(var(--brand));
   box-shadow: 0 0 0 2px hsl(var(--brand) / 0.14);
 }
-.bn-sheerly .kb-collection-settings-description-input {
-  min-height: 58px;
-  resize: none;
-}
 .bn-sheerly .kb-collection-settings-description-compact {
   height: 36px;
-  border-radius: 9px;
+  border-radius: 6px;
 }
 .bn-sheerly .kb-collection-view-description-trigger,
 .bn-sheerly .kb-collection-view-icon-picker,
 .kb-collection-view-description-trigger,
 .kb-collection-view-icon-picker {
   display: inline-flex;
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  border: 1px solid hsl(var(--border) / 0.74);
-  border-radius: 9px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
   background-color: hsl(var(--background));
   color: hsl(var(--muted-foreground));
 }
@@ -2838,27 +2947,8 @@ button.kb-gallery-menu-item {
   background-color: hsl(var(--muted-foreground));
   color: hsl(var(--background));
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 600;
   line-height: 1;
-}
-.kb-collection-view-icon-menu {
-  width: max-content;
-  border-radius: 10px;
-  padding: 6px;
-}
-.kb-collection-view-icon-option {
-  display: inline-flex;
-  width: 34px;
-  height: 34px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 8px;
-  color: hsl(var(--muted-foreground));
-}
-.kb-collection-view-icon-option:hover,
-.kb-collection-view-icon-option[data-active] {
-  background-color: hsl(var(--accent) / 0.68);
-  color: hsl(var(--foreground));
 }
 .kb-collection-column-menu-row:disabled {
   cursor: not-allowed;
@@ -2869,9 +2959,7 @@ button.kb-gallery-menu-item {
 }
 .kb-collection-view-overflow-menu {
   width: min(420px, calc(100vw - 24px));
-  border-radius: 12px;
   padding: 10px;
-  box-shadow: 0 18px 42px hsl(var(--foreground) / 0.15);
 }
 .kb-collection-view-overflow-panel {
   display: flex;
@@ -2880,7 +2968,7 @@ button.kb-gallery-menu-item {
 }
 .kb-collection-view-overflow-search {
   height: 36px;
-  border-radius: 9px;
+  border-radius: 6px;
 }
 .kb-collection-view-overflow-list {
   display: flex;
@@ -2895,11 +2983,11 @@ button.kb-gallery-menu-item {
   min-height: 36px;
   align-items: center;
   gap: 8px;
-  border-radius: 9px;
+  border-radius: 6px;
   padding: 0 8px;
   color: hsl(var(--foreground));
-  font-size: 13.5px;
-  font-weight: 560;
+  font-size: 14px;
+  font-weight: 400;
   text-align: left;
   cursor: grab;
 }
@@ -2927,7 +3015,7 @@ button.kb-gallery-menu-item {
   height: 24px;
   align-items: center;
   justify-content: center;
-  border-radius: 7px;
+  border-radius: 6px;
   color: hsl(var(--muted-foreground));
 }
 .kb-collection-view-overflow-more-btn:hover,
@@ -2940,11 +3028,11 @@ button.kb-gallery-menu-item {
   min-height: 36px;
   align-items: center;
   gap: 9px;
-  border-radius: 9px;
+  border-radius: 6px;
   padding: 0 8px;
   color: hsl(var(--foreground));
-  font-size: 13.5px;
-  font-weight: 560;
+  font-size: 14px;
+  font-weight: 400;
   text-align: left;
 }
 .kb-collection-view-overflow-new:hover {
@@ -2955,6 +3043,7 @@ button.kb-gallery-menu-item {
   flex: 0 0 auto;
   align-items: center;
   gap: 8px;
+  padding-block: 4px;
   opacity: 1;
 }
 .bn-sheerly .kb-collection-search {
@@ -2963,9 +3052,12 @@ button.kb-gallery-menu-item {
   align-items: center;
   gap: 6px;
 }
+/* Поле 16px до 700px включительно — иначе iOS Safari увеличивает страницу
+ * при фокусе (docs/mobile-web.md §2); с 701px — 13px, как текст панели. */
 .bn-sheerly .kb-collection-search-input {
   width: 0;
-  height: 32px;
+  height: 36px;
+  font-size: 16px;
   min-width: 0;
   border-color: transparent;
   opacity: 0;
@@ -2976,15 +3068,20 @@ button.kb-gallery-menu-item {
     padding 160ms ease,
     border-color 120ms ease;
 }
+@media (min-width: 701px) {
+  .bn-sheerly .kb-collection-search-input {
+    font-size: 13px;
+  }
+}
 .bn-sheerly .kb-collection-search[data-open] .kb-collection-search-input {
   width: 180px;
-  border-color: hsl(var(--border) / 0.82);
+  border-color: hsl(var(--border));
   opacity: 1;
   padding-inline: 9px 34px;
 }
 .bn-sheerly .kb-collection-search-clear {
   position: absolute;
-  right: 38px;
+  right: 48px;
   display: inline-flex;
   width: 24px;
   height: 24px;
@@ -3029,15 +3126,14 @@ button.kb-gallery-menu-item {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  border: 1px solid hsl(var(--border) / 0.82);
+  border: 1px solid hsl(var(--border));
   border-radius: 8px;
   background-color: hsl(var(--background));
   color: hsl(var(--muted-foreground));
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 500;
   line-height: 1;
-  transition:
-    background-color 120ms ease,
+  transition: background-color 120ms ease,
     border-color 120ms ease,
     color 120ms ease,
     box-shadow 120ms ease;
@@ -3049,9 +3145,8 @@ button.kb-gallery-menu-item {
 }
 .kb-collection-layout-card[data-active] {
   border-color: hsl(var(--brand));
-  background-color: hsl(var(--brand) / 0.08);
+  background-color: hsl(var(--brand) / 0.1);
   color: hsl(var(--brand-text));
-  box-shadow: inset 0 0 0 1px hsl(var(--brand) / 0.2);
 }
 .kb-collection-layout-card:disabled {
   cursor: not-allowed;
@@ -3070,24 +3165,33 @@ button.kb-gallery-menu-item {
   gap: 12px;
   color: hsl(var(--foreground));
   font-size: 14px;
-  font-weight: 570;
+  font-weight: 400;
 }
+/* Кнопки-инструменты — как в ряду инструментов списков (DS «Кнопки»):
+ * 36px, рамка, радиус 6, без своей тени; включённый фильтр, сортировка
+ * или поиск — синим. */
 .bn-sheerly .kb-collection-icon-btn {
   position: relative;
-  width: 32px;
-  height: 32px;
-  border: 1px solid hsl(var(--border) / 0.82);
-  border-radius: 8px;
+  width: 36px;
+  height: 36px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
   background-color: hsl(var(--background));
   color: hsl(var(--muted-foreground));
-  box-shadow: 0 1px 1px hsl(var(--foreground) / 0.04);
 }
 .bn-sheerly .kb-collection-icon-btn:hover,
-.bn-sheerly .kb-collection-icon-btn[data-state="open"],
-.bn-sheerly .kb-collection-icon-btn[data-active] {
-  border-color: hsl(var(--brand) / 0.26);
-  background-color: hsl(var(--accent) / 0.72);
+.bn-sheerly .kb-collection-icon-btn[data-state="open"] {
+  background-color: hsl(var(--accent));
   color: hsl(var(--foreground));
+}
+.bn-sheerly .kb-collection-icon-btn[data-active] {
+  border-color: hsl(var(--brand) / 0.3);
+  background-color: hsl(var(--brand) / 0.1);
+  color: hsl(var(--brand-text));
+}
+.bn-sheerly .kb-collection-icon-btn[data-active]:hover,
+.bn-sheerly .kb-collection-icon-btn[data-active][data-state="open"] {
+  background-color: hsl(var(--brand) / 0.15);
 }
 .bn-sheerly .kb-collection-actions .kb-collection-toolbar-toggle {
   opacity: 0;
@@ -3107,14 +3211,14 @@ button.kb-gallery-menu-item {
   gap: 4px;
 }
 .bn-sheerly .kb-collection-add-btn {
-  height: 32px;
-  gap: 7px;
-  border: 1px solid hsl(var(--brand) / 0.2);
+  height: 36px;
+  gap: 8px;
+  border-radius: 6px;
   background-color: hsl(var(--brand));
   color: hsl(var(--brand-foreground));
-  padding-inline: 11px;
-  font-size: 13px;
-  font-weight: 600;
+  padding-inline: 12px;
+  font-size: 14px;
+  font-weight: 500;
 }
 .bn-sheerly .kb-collection-add-btn:hover {
   background-color: hsl(var(--brand-hover));
@@ -3140,10 +3244,10 @@ button.kb-gallery-menu-item {
   display: flex;
   min-height: 28px;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   color: hsl(var(--muted-foreground));
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 600;
 }
 .bn-sheerly .kb-collection-group-header svg {
   color: hsl(var(--muted-foreground) / 0.78);
@@ -3154,21 +3258,22 @@ button.kb-gallery-menu-item {
   height: 20px;
   align-items: center;
   justify-content: center;
-  border-radius: 999px;
-  background-color: hsl(var(--muted) / 0.72);
+  border-radius: 6px;
+  background-color: hsl(var(--muted));
   color: hsl(var(--muted-foreground));
-  font-size: 11.5px;
-  font-weight: 650;
+  padding-inline: 6px;
+  font-size: 12px;
+  font-weight: 500;
 }
 .bn-sheerly .kb-collection-row {
   display: flex;
   min-width: 0;
   align-items: center;
   gap: 8px;
-  border: 1px solid hsl(var(--border) / 0.78);
-  border-radius: 10px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
   background-color: hsl(var(--background));
-  padding: 11px 12px;
+  padding: 12px;
   color: inherit;
   text-decoration: none;
   transition:
@@ -3177,9 +3282,7 @@ button.kb-gallery-menu-item {
     box-shadow 120ms ease;
 }
 .bn-sheerly .kb-collection-row:hover {
-  border-color: hsl(var(--brand) / 0.3);
-  background-color: hsl(var(--accent) / 0.42);
-  box-shadow: 0 1px 0 hsl(var(--foreground) / 0.03);
+  background-color: hsl(var(--muted) / 0.4);
 }
 .bn-sheerly .kb-collection-row-main {
   display: flex;
@@ -3190,17 +3293,21 @@ button.kb-gallery-menu-item {
   color: inherit;
   text-decoration: none;
 }
+.bn-sheerly .bn-editor a.kb-collection-row-main,
+.bn-sheerly .bn-editor a.kb-collection-row-main:link,
+.bn-sheerly .bn-editor a.kb-collection-row-main:visited {
+  color: inherit;
+  text-decoration: none;
+}
 .bn-sheerly .kb-collection-row-main:hover .kb-collection-row-title {
-  text-decoration: underline;
-  text-decoration-color: hsl(var(--muted-foreground) / 0.45);
-  text-underline-offset: 3px;
+  color: hsl(var(--brand-text));
 }
 .bn-sheerly .kb-collection-row-title {
   overflow: hidden;
   color: hsl(var(--foreground));
-  font-size: 14.5px;
-  font-weight: 600;
-  line-height: 1.35;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -3209,7 +3316,7 @@ button.kb-gallery-menu-item {
   margin-top: 2px;
   overflow: hidden;
   color: hsl(var(--muted-foreground));
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.4;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -3221,9 +3328,6 @@ button.kb-gallery-menu-item {
   justify-content: flex-end;
   gap: 6px;
 }
-.bn-sheerly .kb-collection-properties[data-wrap] .kb-collection-property-value {
-  white-space: normal;
-}
 .bn-sheerly .kb-collection-property {
   display: inline-flex;
   max-width: 100%;
@@ -3231,10 +3335,10 @@ button.kb-gallery-menu-item {
   gap: 5px;
   border: 1px solid transparent;
   border-radius: 999px;
-  background-color: hsl(var(--muted) / 0.48);
-  padding: 3px 8px;
+  background-color: hsl(var(--muted));
+  padding: 2px 8px;
   color: hsl(var(--foreground));
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.2;
 }
 .bn-sheerly .kb-collection-property .inline-flex {
@@ -3246,28 +3350,19 @@ button.kb-gallery-menu-item {
 .bn-sheerly .kb-collection-property button,
 .bn-sheerly .kb-collection-property input {
   min-height: 18px;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.2;
 }
 .bn-sheerly .kb-collection-property button {
   max-width: 180px;
-}
-.bn-sheerly .kb-collection-property-name {
-  color: hsl(var(--muted-foreground));
-}
-.bn-sheerly .kb-collection-property-value {
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .bn-sheerly .kb-collection-table-scroll {
   display: block;
   width: fit-content;
   max-width: 100%;
   overflow-x: auto;
-  border: 1px solid hsl(var(--border) / 0.78);
-  border-radius: 10px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
   background-color: hsl(var(--background));
 }
 .bn-sheerly .kb-collection-table-scroll[data-menu-open] {
@@ -3289,19 +3384,20 @@ button.kb-gallery-menu-item {
   transition: background-color 120ms ease;
 }
 .bn-sheerly .kb-collection-table-row:not(.kb-collection-table-row-head):hover {
-  background-color: hsl(var(--accent) / 0.34);
+  background-color: hsl(var(--muted) / 0.4);
 }
 .bn-sheerly .kb-collection-table-head-cell,
 .bn-sheerly .kb-collection-table-title-cell,
 .bn-sheerly .kb-collection-table-cell {
-  border-bottom: 1px solid hsl(var(--border) / 0.7);
-  padding: 8px 10px;
+  min-height: 40px;
+  border-bottom: 1px solid hsl(var(--border));
+  padding: 8px 12px;
   text-align: left;
 }
 .bn-sheerly .kb-collection-table[data-vertical-lines] .kb-collection-table-head-cell,
 .bn-sheerly .kb-collection-table[data-vertical-lines] .kb-collection-table-title-cell,
 .bn-sheerly .kb-collection-table[data-vertical-lines] .kb-collection-table-cell {
-  border-right: 1px solid hsl(var(--border) / 0.54);
+  border-right: 1px solid hsl(var(--border));
 }
 .bn-sheerly .kb-collection-table-row > :last-child {
   border-right: 0;
@@ -3309,13 +3405,14 @@ button.kb-gallery-menu-item {
 .bn-sheerly .kb-collection-table-row:last-child > * {
   border-bottom: 0;
 }
+/* Шапка — как у DataTable: bg-muted, 12 / 500 серым. */
 .bn-sheerly .kb-collection-table-head-cell {
   position: relative;
-  height: 34px;
-  background-color: hsl(var(--muted) / 0.26);
+  height: 40px;
+  background-color: hsl(var(--muted));
   color: hsl(var(--muted-foreground));
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 500;
 }
 .bn-sheerly .kb-collection-table-add-field {
   display: inline-flex;
@@ -3374,7 +3471,7 @@ button.kb-gallery-menu-item {
   top: 0;
   z-index: 6;
   display: inline-flex;
-  height: 34px;
+  height: 40px;
   align-items: center;
   gap: 6px;
   border: 1px solid hsl(var(--border) / 0.78);
@@ -3383,10 +3480,10 @@ button.kb-gallery-menu-item {
   color: hsl(var(--foreground));
   padding: 8px 10px;
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 500;
   opacity: 0.72;
   pointer-events: none;
-  box-shadow: 0 10px 26px hsl(var(--foreground) / 0.14);
+  box-shadow: theme('boxShadow.md');
 }
 .bn-sheerly .kb-collection-column-drag-preview svg {
   flex-shrink: 0;
@@ -3460,17 +3557,19 @@ button.kb-gallery-menu-item {
   align-items: center;
   gap: 8px;
   color: hsl(var(--foreground));
-  font-weight: 600;
+  font-weight: 500;
   text-decoration: none;
 }
-.bn-sheerly .kb-collection-table-title-link:link,
-.bn-sheerly .kb-collection-table-title-link:visited {
+/* Ссылка редактора BlockNote подчёркнута — у названия записи, как у
+ * строк остальных таблиц, подчёркивания нет, при наведении оно синеет. */
+.bn-sheerly .bn-editor a.kb-collection-table-title-link,
+.bn-sheerly .bn-editor a.kb-collection-table-title-link:link,
+.bn-sheerly .bn-editor a.kb-collection-table-title-link:visited {
   color: hsl(var(--foreground));
+  text-decoration: none;
 }
 .bn-sheerly .kb-collection-table-title-link:hover .kb-collection-table-title-text {
-  text-decoration: underline;
-  text-decoration-color: hsl(var(--muted-foreground) / 0.45);
-  text-underline-offset: 3px;
+  color: hsl(var(--brand-text));
 }
 .bn-sheerly .kb-collection-table-title-text {
   min-width: 0;
@@ -3607,7 +3706,7 @@ button.kb-gallery-menu-item {
   background-color: transparent;
   color: hsl(var(--muted-foreground));
   font: inherit;
-  font-weight: 560;
+  font-weight: 400;
 }
 .bn-sheerly .kb-collection-table-new-cell:hover {
   color: hsl(var(--foreground));
@@ -3628,7 +3727,7 @@ button.kb-gallery-menu-item {
   gap: 8px;
   border: 1px dashed hsl(var(--border));
   border-radius: 8px;
-  background-color: hsl(var(--muted) / 0.22);
+  background-color: hsl(var(--muted) / 0.4);
   color: hsl(var(--muted-foreground));
   font-size: 13px;
 }
@@ -3639,16 +3738,14 @@ button.kb-gallery-menu-item {
   /* Воздух сверху/снизу до пунктирной рамки — без него иконка
      «Нет записей» прижата к верхнему краю. */
   min-height: 120px;
-  padding: 28px 16px;
+  padding: 24px 16px;
 }
 .bn-sheerly .kb-collection-empty:disabled {
   cursor: default;
 }
 .kb-collection-settings {
   width: min(440px, calc(100vw - 24px));
-  border-radius: 12px;
   padding: 10px;
-  box-shadow: 0 18px 44px hsl(var(--foreground) / 0.14);
 }
 .kb-collection-settings-panel {
   display: flex;
@@ -3658,8 +3755,8 @@ button.kb-gallery-menu-item {
 .kb-collection-settings-title {
   padding: 2px 6px 6px;
   color: hsl(var(--muted-foreground));
-  font-size: 12.5px;
-  font-weight: 650;
+  font-size: 12px;
+  font-weight: 500;
 }
 .kb-collection-settings-name-row {
   display: grid;
@@ -3674,11 +3771,11 @@ button.kb-gallery-menu-item {
 .kb-collection-settings-name-input {
   width: 100%;
   height: 36px;
-  border-radius: 10px;
+  border-radius: 6px;
   background-color: hsl(var(--background));
   padding-right: 40px;
   font-size: 14px;
-  font-weight: 560;
+  font-weight: 400;
 }
 .kb-collection-settings-name-input-wrap {
   position: relative;
@@ -3695,14 +3792,13 @@ button.kb-gallery-menu-item {
   min-height: 38px;
   align-items: center;
   gap: 9px;
-  border-radius: 9px;
+  border-radius: 6px;
   padding: 0 8px;
   color: hsl(var(--foreground));
-  font-size: 13.5px;
-  font-weight: 550;
+  font-size: 14px;
+  font-weight: 400;
   text-align: left;
-  transition:
-    background-color 120ms ease,
+  transition: background-color 120ms ease,
     color 120ms ease;
 }
 .kb-collection-settings-nav-row:hover {
@@ -3717,25 +3813,6 @@ button.kb-gallery-menu-item {
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.kb-collection-field-toggle {
-  display: inline-flex;
-  min-height: 28px;
-  align-items: center;
-  gap: 5px;
-  color: hsl(var(--muted-foreground));
-  font-size: 12px;
-  font-weight: 550;
-  white-space: nowrap;
-}
-.kb-collection-field-toggle input {
-  accent-color: hsl(var(--brand));
-}
-.kb-collection-settings-section-title {
-  padding: 8px 6px 0;
-  color: hsl(var(--muted-foreground));
-  font-size: 11.5px;
-  font-weight: 650;
 }
 .kb-collection-settings-panel-head {
   display: flex;
@@ -3760,12 +3837,7 @@ button.kb-gallery-menu-item {
 .kb-collection-settings-panel-title {
   color: hsl(var(--foreground));
   font-size: 14px;
-  font-weight: 700;
-}
-.kb-collection-settings-section {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  font-weight: 600;
 }
 .kb-collection-settings-row {
   display: flex;
@@ -3773,29 +3845,11 @@ button.kb-gallery-menu-item {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  border-radius: 10px;
+  border-radius: 6px;
   padding: 3px 4px;
 }
-.kb-collection-settings-row-label {
-  display: inline-flex;
-  min-width: 0;
-  align-items: center;
-  gap: 8px;
-  color: hsl(var(--foreground));
-  font-size: 13px;
-  font-weight: 600;
-}
-.kb-collection-settings-row-label svg {
-  color: hsl(var(--muted-foreground));
-}
-.kb-collection-settings-subtitle {
-  color: hsl(var(--muted-foreground));
-  font-size: 12px;
-  font-weight: 650;
-}
 .kb-collection-views-editor,
-.kb-collection-view-list,
-.kb-collection-view-actions {
+.kb-collection-view-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -3806,11 +3860,11 @@ button.kb-gallery-menu-item {
   min-height: 36px;
   align-items: center;
   gap: 8px;
-  border-radius: 9px;
+  border-radius: 6px;
   padding: 0 8px;
   color: hsl(var(--foreground));
-  font-size: 13px;
-  font-weight: 560;
+  font-size: 14px;
+  font-weight: 400;
   text-align: left;
 }
 .kb-collection-view-row:hover {
@@ -3840,7 +3894,7 @@ button.kb-gallery-menu-item {
   min-height: 38px;
   align-items: center;
   gap: 6px;
-  border-radius: 9px;
+  border-radius: 6px;
   padding: 4px 5px;
 }
 .kb-collection-sort-row {
@@ -3854,13 +3908,13 @@ button.kb-gallery-menu-item {
 .kb-collection-filter-input,
 .kb-collection-sort-select {
   min-width: 0;
-  height: 30px;
+  height: 36px;
   border: 1px solid hsl(var(--border) / 0.82);
   border-radius: 8px;
   background-color: hsl(var(--background));
   padding-inline: 8px;
   color: hsl(var(--foreground));
-  font-size: 12.5px;
+  font-size: 13px;
 }
 .kb-collection-filter-placeholder {
   min-width: 0;
@@ -3871,7 +3925,7 @@ button.kb-gallery-menu-item {
   min-height: 38px;
   align-items: center;
   gap: 8px;
-  border-radius: 9px;
+  border-radius: 6px;
   padding: 4px 5px;
 }
 .kb-collection-grouping-row:hover {
@@ -3879,24 +3933,24 @@ button.kb-gallery-menu-item {
 }
 .kb-collection-grouping-select {
   min-width: 0;
-  height: 30px;
+  height: 36px;
   border: 1px solid hsl(var(--border) / 0.82);
   border-radius: 8px;
   background-color: hsl(var(--background));
   padding-inline: 8px;
   color: hsl(var(--foreground));
-  font-size: 12.5px;
+  font-size: 13px;
 }
 .kb-collection-field-select-trigger {
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr) 16px;
   width: 100%;
   min-width: 0;
-  height: 32px;
+  height: 36px;
   align-items: center;
   gap: 8px;
   border: 1px solid hsl(var(--border) / 0.82);
-  border-radius: 9px;
+  border-radius: 6px;
   background-color: hsl(var(--background));
   padding: 0 8px;
   color: hsl(var(--foreground));
@@ -3911,12 +3965,10 @@ button.kb-gallery-menu-item {
 .kb-collection-field-select-menu {
   width: min(300px, calc(100vw - 24px));
   padding: 8px;
-  border-radius: 12px;
-  box-shadow: 0 18px 42px hsl(var(--foreground) / 0.15);
 }
 .kb-collection-field-select-search {
   height: 36px;
-  border-radius: 9px;
+  border-radius: 6px;
   font-size: 14px;
 }
 .kb-collection-field-select-list {
@@ -3933,11 +3985,11 @@ button.kb-gallery-menu-item {
   min-height: 34px;
   align-items: center;
   gap: 8px;
-  border-radius: 8px;
+  border-radius: 6px;
   padding: 0 7px;
   color: hsl(var(--foreground));
-  font-size: 13.5px;
-  font-weight: 540;
+  font-size: 14px;
+  font-weight: 400;
   text-align: left;
 }
 .kb-collection-field-select-option:hover,
@@ -3956,20 +4008,15 @@ button.kb-gallery-menu-item {
 .kb-collection-field-select-empty {
   padding: 12px 6px;
   color: hsl(var(--muted-foreground));
-  font-size: 12.5px;
+  font-size: 13px;
 }
 .kb-collection-settings-empty {
   border: 1px dashed hsl(var(--border));
-  border-radius: 10px;
+  border-radius: 6px;
   padding: 12px;
   color: hsl(var(--muted-foreground));
   font-size: 12px;
   line-height: 1.4;
-}
-.kb-collection-properties-editor-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
 }
 .kb-collection-property-visibility-editor {
   display: flex;
@@ -3977,8 +4024,8 @@ button.kb-gallery-menu-item {
   gap: 14px;
 }
 .kb-collection-property-visibility-search {
-  height: 38px;
-  border-radius: 10px;
+  height: 36px;
+  border-radius: 6px;
   font-size: 14px;
 }
 .kb-collection-property-visibility-section {
@@ -3993,7 +4040,7 @@ button.kb-gallery-menu-item {
   padding: 2px 2px 5px;
   color: hsl(var(--muted-foreground));
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 500;
 }
 .kb-collection-property-visibility-heading button {
   color: hsl(var(--brand-text));
@@ -4005,7 +4052,7 @@ button.kb-gallery-menu-item {
   min-height: 34px;
   align-items: center;
   gap: 7px;
-  border-radius: 9px;
+  border-radius: 6px;
   padding: 0 4px;
   cursor: grab;
 }
@@ -4022,8 +4069,8 @@ button.kb-gallery-menu-item {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13.5px;
-  font-weight: 540;
+  font-size: 14px;
+  font-weight: 400;
 }
 .kb-collection-property-visibility-toggle {
   display: inline-flex;
@@ -4031,7 +4078,7 @@ button.kb-gallery-menu-item {
   height: 28px;
   align-items: center;
   justify-content: center;
-  border-radius: 7px;
+  border-radius: 6px;
   color: hsl(var(--muted-foreground));
 }
 .kb-collection-property-visibility-toggle:hover {
@@ -4041,44 +4088,11 @@ button.kb-gallery-menu-item {
 .kb-collection-property-visibility-empty {
   padding: 5px 4px;
   color: hsl(var(--muted-foreground));
-  font-size: 12.5px;
-}
-.kb-collection-field-editor {
-  display: grid;
-  grid-template-columns: 16px 18px minmax(100px, 1fr) 108px auto 30px;
-  min-height: 38px;
-  align-items: center;
-  gap: 6px;
-  border-radius: 9px;
-  padding: 4px 5px;
-}
-.kb-collection-field-editor:hover {
-  background-color: hsl(var(--accent) / 0.45);
-}
-.kb-collection-field-drag {
-  cursor: grab;
-}
-.kb-collection-field-drag:active {
-  cursor: grabbing;
-}
-.kb-collection-field-type,
-.kb-collection-native-select {
-  height: 30px;
-  border: 1px solid hsl(var(--border) / 0.82);
-  border-radius: 8px;
-  background-color: hsl(var(--background));
-  color: hsl(var(--foreground));
-  padding-inline: 9px;
-  font-size: 12px;
-}
-.kb-collection-native-select {
-  width: 100%;
+  font-size: 13px;
 }
 .kb-collection-column-menu {
   width: min(300px, calc(100vw - 24px));
-  border-radius: 12px;
   padding: 10px;
-  box-shadow: 0 18px 42px hsl(var(--foreground) / 0.15);
 }
 .kb-collection-column-menu:has(.kb-collection-column-insert-panel) {
   width: min(430px, calc(100vw - 24px));
@@ -4094,20 +4108,20 @@ button.kb-gallery-menu-item {
   align-items: center;
   gap: 7px;
   border: 1px solid hsl(var(--border) / 0.82);
-  border-radius: 10px;
+  border-radius: 6px;
   background-color: hsl(var(--background));
   padding: 2px 6px;
 }
 .kb-collection-column-description-input {
-  height: 34px;
+  height: 36px;
   margin-top: 3px;
-  border-radius: 9px;
+  border-radius: 6px;
   font-size: 13px;
 }
 .kb-collection-inline-icon-picker {
   overflow: hidden;
   border: 1px solid hsl(var(--border) / 0.82);
-  border-radius: 10px;
+  border-radius: 6px;
   background-color: hsl(var(--background));
 }
 .kb-collection-column-menu-name svg {
@@ -4120,11 +4134,11 @@ button.kb-gallery-menu-item {
   min-height: 36px;
   align-items: center;
   gap: 8px;
-  border-radius: 9px;
+  border-radius: 6px;
   padding: 0 8px;
   color: inherit;
-  font-size: 13.5px;
-  font-weight: 520;
+  font-size: 14px;
+  font-weight: 400;
   text-align: left;
   transition: background-color 120ms ease;
 }
@@ -4146,6 +4160,14 @@ button.kb-gallery-menu-item {
   text-align-last: right;
   outline: none;
 }
+/* Разрушительный пункт — красным вместе со значком (DS «Выпадающий
+ * список вариантов»): свой цвет пункта иначе перебивает text-destructive. */
+.kb-collection-column-menu-row.text-destructive,
+.kb-collection-settings-nav-row.text-destructive,
+.kb-collection-column-menu-row.text-destructive svg,
+.kb-collection-settings-nav-row.text-destructive svg {
+  color: hsl(var(--destructive));
+}
 .kb-collection-column-menu-separator {
   height: 1px;
   margin: 5px 4px;
@@ -4166,7 +4188,7 @@ button.kb-gallery-menu-item {
   padding: 3px 4px 0;
   color: hsl(var(--muted-foreground));
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 500;
 }
 .kb-collection-column-type-grid {
   display: grid;
@@ -4186,14 +4208,13 @@ button.kb-gallery-menu-item {
   min-height: 34px;
   align-items: center;
   gap: 7px;
-  border-radius: 8px;
+  border-radius: 6px;
   padding: 0 7px;
   color: hsl(var(--foreground));
-  font-size: 13px;
-  font-weight: 540;
+  font-size: 14px;
+  font-weight: 400;
   text-align: left;
-  transition:
-    background-color 120ms ease,
+  transition: background-color 120ms ease,
     color 120ms ease;
 }
 .kb-collection-column-type-option:hover,
@@ -4206,49 +4227,61 @@ button.kb-gallery-menu-item {
 .kb-collection-column-type-option[data-active] svg:last-child {
   color: hsl(var(--brand-text));
 }
-.kb-collection-column-create-btn {
-  width: 100%;
-  height: 32px;
-  border-radius: 8px;
-  background-color: hsl(var(--brand));
-  color: hsl(var(--brand-foreground));
-  font-size: 13px;
-  font-weight: 650;
-}
-.kb-collection-column-create-btn:hover {
-  background-color: hsl(var(--brand-hover));
-  color: hsl(var(--brand-foreground));
-}
-.kb-collection-field-type:focus,
-.kb-collection-native-select:focus {
-  outline: 2px solid hsl(var(--brand) / 0.35);
-  outline-offset: 1px;
-}
-.kb-collection-add-field-row {
-  display: flex;
-  justify-content: flex-start;
-  padding-top: 2px;
-}
-
 @media (max-width: 700px) {
   .bn-sheerly .kb-collection-title-row,
   .bn-sheerly .kb-collection-toolbar {
-    align-items: flex-start;
+    align-items: stretch;
     flex-direction: column;
+    gap: 8px;
   }
-  .bn-sheerly .kb-collection-title,
-  .bn-sheerly .kb-collection-title-input {
-    font-size: 26px;
+  /* На узком экране линия вкладок — под самими вкладками, кнопки идут
+   * строкой ниже: значки слева, «Добавить» справа. */
+  .bn-sheerly .kb-collection-toolbar {
+    border-bottom: 0;
+  }
+  /* Ряд сдвинут на -10px (поля вкладок), линия — от начала текста. */
+  .bn-sheerly .kb-collection-view-tabs {
+    width: calc(100% + 10px);
+  }
+  .bn-sheerly .kb-collection-view-tabs::before {
+    content: "";
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 10px;
+    height: 1px;
+    background-color: hsl(var(--border));
+  }
+  .bn-sheerly .kb-collection-view-tab::after {
+    bottom: 0;
   }
   .bn-sheerly .kb-collection-actions {
-    flex-wrap: wrap;
+    width: 100%;
+    flex-wrap: nowrap;
+    padding-block: 0;
     opacity: 1;
   }
-  .bn-sheerly .kb-collection-view-tabs {
-    width: 100%;
+  .bn-sheerly .kb-collection-actions .kb-collection-add-btn {
+    margin-left: auto;
   }
-  .bn-sheerly .kb-collection-view-tab {
-    justify-content: center;
+  /* Открытый поиск занимает свободное место строки; «Добавить» на это
+   * время прячется — иначе ряд шире экрана и кнопка обрезана. */
+  .bn-sheerly .kb-collection-search[data-open] {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+  .bn-sheerly .kb-collection-search[data-open] .kb-collection-search-input {
+    width: auto;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+  .bn-sheerly .kb-collection-actions:has(.kb-collection-search[data-open]) .kb-collection-add-btn {
+    display: none;
+  }
+  /* Свернуть панель — по наведению, которого на телефоне нет: кнопка
+   * только занимала место перед значками. */
+  .bn-sheerly .kb-collection-actions .kb-collection-toolbar-toggle {
+    display: none;
   }
   .bn-sheerly .kb-collection-properties {
     padding-left: 0;
@@ -4256,15 +4289,7 @@ button.kb-gallery-menu-item {
   .bn-sheerly .kb-collection-table-scroll {
     margin-inline: -2px;
   }
-  .kb-collection-field-editor {
-    grid-template-columns: auto auto minmax(0, 1fr) auto auto;
-  }
-  .kb-collection-field-type {
-    grid-column: 3 / -1;
-    width: 100%;
-  }
 }
-
 .bn-drag-preview .kb-gallery-header,
 .bn-drag-preview .kb-gallery-item-actions {
   display: none !important;
@@ -4379,13 +4404,11 @@ button.kb-gallery-menu-item {
   font-size: 12px;
   line-height: 1.35;
 }
-
 @media (max-width: 420px) {
   .bn-sheerly .kb-gallery-grid {
     grid-template-columns: 1fr !important;
   }
 }
-
 .kb-gallery-lightbox {
   width: min(96vw, 1120px);
   max-width: none;
@@ -4483,7 +4506,6 @@ button.kb-gallery-menu-item {
   font-size: 14px;
   line-height: 1.45;
 }
-
 /* ──── Плавный переход тем ──────────────────────────────────────
    `.theme-transition` навешивается на <html> на 220ms во время
    переключения через `applyTheme` (src/lib/theme.ts), чтобы цвета

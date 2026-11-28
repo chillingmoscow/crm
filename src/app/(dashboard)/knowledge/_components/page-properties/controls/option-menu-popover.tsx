@@ -9,7 +9,10 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { PALETTE_GRID, paletteDot } from "@/lib/palette";
+import { PALETTE_GRID } from "@/lib/palette";
+import { ColorDot } from "@/components/ui/color-dot";
+import { Input } from "@/components/ui/input";
+import { fieldFocusClass } from "@/components/ui/field-styles";
 import { KB_PROPERTY_UI_ICONS } from "@/components/knowledge/property-ui-icons";
 import type { KbPropertyColor } from "@/types/knowledge";
 
@@ -52,8 +55,26 @@ export function OptionMenuPopover({
     if (descOpen) resize();
   }, [descOpen, descDraft]);
 
+  // Esc — отмена: Radix закрывает окно раньше, чем поле получает Esc, и
+  // закрытие сохраняло введённое название. Описание пишется на ходу —
+  // при отмене возвращаем то, что было при открытии.
+  const escapedRef = useRef(false);
+  // Поле названия теряет фокус уже после закрытия — blur не должен
+  // сохранить отменённое название.
+  const skipBlurRef = useRef(false);
+  const openDescRef = useRef(description ?? "");
   const flush = (next: boolean) => {
-    if (!next) {
+    if (next) {
+      escapedRef.current = false;
+      skipBlurRef.current = false;
+      openDescRef.current = description ?? "";
+    } else if (escapedRef.current) {
+      escapedRef.current = false;
+      skipBlurRef.current = true;
+      setName(option);
+      setDescDraft(openDescRef.current);
+      if ((description ?? "") !== openDescRef.current) onSetDescription(openDescRef.current);
+    } else {
       if (descDraft !== (description ?? "")) onSetDescription(descDraft);
       const t = name.trim();
       if (t && t !== option) onRename(t);
@@ -69,27 +90,37 @@ export function OptionMenuPopover({
           type="button"
           aria-label={`Меню варианта «${option}»`}
           onClick={(e) => e.stopPropagation()}
-          className="size-5 inline-flex shrink-0 items-center justify-center rounded
-                     text-muted-foreground/40 opacity-0 transition
-                     hover:text-foreground group-hover/opt:opacity-100
+          className="size-6 inline-flex shrink-0 items-center justify-center rounded-md
+                     text-muted-foreground opacity-0 transition
+                     hover:bg-background hover:text-foreground group-hover/opt:opacity-100
+                     focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring
                      data-[state=open]:opacity-100"
         >
-          <MoreHorizontal className="size-3.5" />
+          <MoreHorizontal className="size-4" />
         </button>
       </PopoverTrigger>
       <PopoverContent
         align="end"
         sideOffset={6}
         onClick={(e) => e.stopPropagation()}
-        className="w-[244px] overflow-hidden rounded-xl p-0"
+        onEscapeKeyDown={() => {
+          escapedRef.current = true;
+        }}
+        // Десять цветов и «Удалить» внизу: на низком экране окно
+        // прокручивается, а не обрезает последний пункт.
+        className="w-60 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto overscroll-contain p-1"
       >
-        <div className="flex items-center gap-2 px-2.5 pt-2.5 pb-2">
+        <div className="flex items-center gap-2 p-1.5 pb-2">
           <div className="relative min-w-0 flex-1">
-            <input
+            <Input
               autoFocus
               value={name}
               onChange={(e) => setName(e.target.value)}
               onBlur={() => {
+                if (skipBlurRef.current) {
+                  skipBlurRef.current = false;
+                  return;
+                }
                 const t = name.trim();
                 if (t && t !== option) onRename(t);
                 else setName(option);
@@ -107,26 +138,26 @@ export function OptionMenuPopover({
                 }
               }}
               aria-label="Название варианта"
-              className="h-8 w-full rounded-md border border-input bg-transparent pl-2 pr-10 text-[13px] text-foreground outline-none focus:border-brand focus:ring-2 focus:ring-brand/30"
+              className="h-9 pl-2.5 pr-10"
             />
             <button
               type="button"
               aria-label="Описание варианта"
               onClick={() => setDescOpen((v) => !v)}
               className={cn(
-                "absolute right-1 top-1/2 size-6 -translate-y-1/2 inline-flex items-center justify-center rounded-full transition-colors",
+                "absolute right-1.5 top-1/2 size-7 -translate-y-1/2 inline-flex items-center justify-center rounded-md transition-colors",
                 descOpen
-                  ? "bg-foreground/10 text-foreground"
-                  : "text-muted-foreground/60 hover:bg-foreground/[0.06] hover:text-foreground",
+                  ? "bg-accent text-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground",
               )}
             >
-              <KB_PROPERTY_UI_ICONS.description className="size-3.5" />
+              <KB_PROPERTY_UI_ICONS.description className="size-4" />
             </button>
           </div>
         </div>
 
         {descOpen && (
-          <div className="px-2.5 pb-2">
+          <div className="px-1.5 pb-2">
             <textarea
               ref={descRef}
               rows={1}
@@ -145,39 +176,22 @@ export function OptionMenuPopover({
                   e.preventDefault();
                   setOpen(false);
                 }
-                if (e.key === "Escape") {
-                  setDescDraft(description ?? "");
-                  onSetDescription(description ?? "");
-                  setDescOpen(false);
-                }
+                // Esc отменяет правку в onEscapeKeyDown (окно закрывается).
               }}
               placeholder="Добавить описание…"
               aria-label="Описание варианта"
-              className="w-full resize-none overflow-hidden rounded-md border
-                         border-input bg-transparent px-2 py-1.5 text-[13px]
-                         leading-snug text-muted-foreground outline-none
-                         focus:border-brand focus:ring-2 focus:ring-brand/30
-                         placeholder:text-muted-foreground/40"
+              className={cn(
+                "w-full resize-none overflow-hidden rounded-md border border-input bg-background px-2.5 py-2 text-base leading-snug md:text-sm",
+                "placeholder:text-muted-foreground",
+                fieldFocusClass,
+              )}
             />
           </div>
         )}
 
-        <button
-          type="button"
-          onClick={() => {
-            setOpen(false);
-            onRemove();
-          }}
-          className="flex w-full items-center gap-2.5 px-2.5 py-1.5 text-[13px]
-                     text-destructive transition-colors hover:bg-accent"
-        >
-          <KB_PROPERTY_UI_ICONS.delete className="size-4" />
-          Удалить
-        </button>
-
-        <div className="mt-1 border-t border-border px-1 py-1">
-          <div className="pb-1.5 pl-1 text-[12px] font-semibold text-muted-foreground/70">
-            Цвета
+        <div className="py-1">
+          <div className="px-2 pb-1 pt-0.5 text-xs font-medium text-muted-foreground">
+            Цвет
           </div>
           {PALETTE_GRID.map((c) => {
             const isCurrent = (color ?? "default") === c.name;
@@ -186,23 +200,35 @@ export function OptionMenuPopover({
                 key={c.name}
                 type="button"
                 onClick={() => onSetColor(c.name)}
-                className="flex w-full items-center gap-2.5 rounded-md px-1.5
-                           py-1.5 text-[13px] transition-colors hover:bg-accent"
-              >
-                <span
-                  className={cn(
-                    "size-4 shrink-0 rounded",
-                    c.name === "default" ? "bg-muted" : paletteDot(c.name),
-                  )}
-                />
-                <span className="flex-1 text-left">{c.label}</span>
-                {isCurrent && (
-                  <Check className="size-3.5 text-muted-foreground/60" />
+                className={cn(
+                  "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
+                  "hover:bg-accent focus-visible:bg-accent focus-visible:outline-none",
+                  isCurrent && "bg-accent",
                 )}
+              >
+                <ColorDot color={c.name} size="md" />
+                <span className="flex-1 text-left">{c.label}</span>
+                {isCurrent && <Check className="size-3.5" />}
               </button>
             );
           })}
         </div>
+        {/* Разрушительное — последним через разделитель (DS «Меню»). */}
+        <div className="-mx-1 my-1 h-px bg-border" />
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(false);
+            onRemove();
+          }}
+          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm
+                     text-destructive transition-colors hover:bg-accent
+                     focus-visible:bg-accent focus-visible:outline-none"
+        >
+          <KB_PROPERTY_UI_ICONS.delete className="size-4" />
+          Удалить
+        </button>
+
       </PopoverContent>
     </Popover>
   );

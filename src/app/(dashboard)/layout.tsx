@@ -1,15 +1,17 @@
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { getCachedUser, getCachedActiveAccountId, getCachedPermissions, createClient } from "@/lib/supabase/server";
-import {
-  SidebarInset,
-  SidebarProvider,
-} from "@/components/ui/sidebar";
+import { SidebarInset } from "@/components/ui/sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppSidebar } from "@/components/shared/sidebar";
+import { WorkspaceSidebarProvider } from "@/components/shared/workspace-sidebar-provider";
+import { KB_MENU_COOKIE } from "@/lib/knowledge/shell";
 import { WorkspaceAppearance } from "@/components/shared/workspace-appearance";
 import { DashboardTopbar } from "@/components/shared/dashboard-topbar";
 import { PushPromptBanner } from "@/components/shared/push-prompt-banner";
+import { PUSH_PROMPT_COOKIE, parsePushPrompt } from "@/lib/ui/push-prompt-pref";
+import { TableWidthProvider } from "@/components/shared/table/table-width-context";
+import { TABLE_WIDTH_COOKIE } from "@/lib/ui/table-width-pref";
 import { PageHeaderActionsProvider } from "@/components/shared/page-header-actions";
 import { HotkeysDialogProvider } from "@/components/shared/hotkeys-dialog";
 import { PageTransition } from "@/components/shared/page-transition";
@@ -144,7 +146,8 @@ export default async function DashboardLayout({
       : 0;
 
   // Восстановим состояние main-сайдбара (открыт/свёрнут) из cookie
-  // `sidebar_state`, который SidebarProvider пишет на каждый toggle.
+  // `sidebar_state`, который WorkspaceSidebarProvider пишет на каждый toggle
+  // вне базы знаний.
   // Без SSR-чтения после reload'а сайдбар каждый раз возвращался в
   // expanded (default), даже если юзер свернул его.
   const cookieStore = await cookies();
@@ -158,6 +161,10 @@ export default async function DashboardLayout({
   // мог отрендерить иконку в правильном цвете без post-hydration
   // flicker'а (Codex P2 на PR #129).
   const kbSidebarHidden = cookieStore.get("kb_sidebar_hidden")?.value === "true";
+  // Ширины таблиц с прошлого захода и решение о баннере уведомлений —
+  // чтобы страница сразу рисовалась такой, какой станет после загрузки.
+  const tableWidths = cookieStore.get(TABLE_WIDTH_COOKIE)?.value;
+  const pushPrompt = parsePushPrompt(cookieStore.get(PUSH_PROMPT_COOKIE)?.value);
 
   // Режим «смотрю за другого пользователя» (см. src/lib/impersonation).
   // readActiveImpersonation сверяет билет и с пользователем, и с
@@ -171,8 +178,11 @@ export default async function DashboardLayout({
     // (components/ui/sidebar.tsx), иначе значение оттуда перекрывает это.
     <WorkspaceAppearance>
     <TooltipProvider delayDuration={500} skipDelayDuration={500}>
-    <SidebarProvider
-      defaultOpen={sidebarDefaultOpen}
+    <WorkspaceSidebarProvider
+      appDefaultOpen={sidebarDefaultOpen}
+      // В базе знаний меню по умолчанию свёрнуто; развёрнутое там
+      // запоминается отдельно (src/lib/knowledge/shell.ts).
+      kbDefaultOpen={cookieStore.get(KB_MENU_COOKIE)?.value === "true"}
       // Баннер режима просмотра — fixed, поэтому из потока он выпадает и
       // накрыл бы верх сайдбара и контента. Освобождаем ему место отступом
       // на всём враппере; box-border оставляет общую высоту равной экрану.
@@ -223,15 +233,17 @@ export default async function DashboardLayout({
             {/* Top bar: [trigger | breadcrumb] … [actions | bell].
                 На /knowledge скрывается — KB рендерит собственный topbar
                 (см. components/shared/dashboard-topbar.tsx). */}
-            {!activeImpersonation && <PushPromptBanner />}
+            {!activeImpersonation && <PushPromptBanner initial={pushPrompt} />}
             <DashboardTopbar />
             <CommandPaletteProvider userPermissions={userPermissions} activeRoleCode={activeRoleCode} />
-            <PageTransition className="flex min-w-0 flex-1 flex-col overflow-x-clip">{children}</PageTransition>
+            <TableWidthProvider value={tableWidths}>
+              <PageTransition className="flex min-w-0 flex-1 flex-col overflow-x-clip">{children}</PageTransition>
+            </TableWidthProvider>
           </PageHeaderActionsProvider>
         </KbSearchProvider>
         <HotkeysDialogProvider />
       </SidebarInset>
-    </SidebarProvider>
+    </WorkspaceSidebarProvider>
     </TooltipProvider>
     </WorkspaceAppearance>
   );

@@ -75,7 +75,7 @@ export function employeeOptions(
     return {
       value: key,
       name: e.name,
-      hint: `${e.role_name} · разовый`,
+      hint: `${e.role_name} · подменный`,
       disabled: busy(key),
       disabledHint: busy(key) ? "уже в расписании" : undefined,
     };
@@ -125,7 +125,7 @@ export function EmployeePicker({
   /** Подпись пункта «без сотрудника»; без неё такого пункта нет. */
   emptyLabel?: string;
   includeCasual?: boolean;
-  /** Ведёт в «Сотрудники → Добавить → Разовый». */
+  /** Ведёт в «Сотрудники → Добавить → Подменный». */
   addCasualLink?: boolean;
   id?: string;
 }) {
@@ -234,9 +234,9 @@ export function EmployeePicker({
               </CommandGroup>
             )}
             {staff.length > 0 && <CommandGroup heading="Сотрудники">{staff.map(item)}</CommandGroup>}
-            {recent.length > 0 && <CommandGroup heading="Разовые">{recent.map(item)}</CommandGroup>}
+            {recent.length > 0 && <CommandGroup heading="Подменные">{recent.map(item)}</CommandGroup>}
             {formerVisible && former.length > 0 && (
-              <CommandGroup heading={`Бывшие разовые · без смен больше ${CASUAL_RECENT_DAYS} дней`}>
+              <CommandGroup heading={`Бывшие подменные · без смен больше ${CASUAL_RECENT_DAYS} дней`}>
                 {former.map(item)}
               </CommandGroup>
             )}
@@ -249,7 +249,7 @@ export function EmployeePicker({
                   className="gap-2.5 px-2 py-2 text-muted-foreground"
                 >
                   <History className="size-4" />
-                  Показать бывших разовых · {former.length}
+                  Показать бывших подменных · {former.length}
                 </CommandItem>
               </CommandGroup>
             )}
@@ -257,13 +257,13 @@ export function EmployeePicker({
               <CommandGroup>
                 <CommandItem
                   value="__add_casual__"
-                  keywords={["новый разовый сотрудник", "добавить"]}
+                  keywords={["новый подменный сотрудник", "разовый", "добавить"]}
                   onSelect={() => router.push("/people/staff?add=casual")}
                   className="gap-2.5 px-2 py-2 text-muted-foreground"
                 >
                   <UserPlus className="size-4" />
                   <span className="min-w-0 flex-1">
-                    <span className="block text-sm text-foreground">Добавить разового</span>
+                    <span className="block text-sm text-foreground">Добавить подменного</span>
                     <span className="block text-xs">В «Сотрудниках» он получит PIN Quick Resto</span>
                   </span>
                 </CommandItem>

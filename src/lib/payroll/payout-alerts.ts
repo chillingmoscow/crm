@@ -11,7 +11,7 @@ import type { VenueHandle } from "./payout-engine";
 // Сбой карточки не роняет выдачу или сверку: деньги уже записаны, а о
 // проблеме параллельно пишет чат отчётов. В лог — только вид и заведение.
 
-export type PayoutAlertKind = "reconcile" | "short" | "carry" | "transfer" | "failed" | "message";
+export type PayoutAlertKind = "reconcile" | "short" | "carry" | "transfer" | "failed" | "message" | "kpi" | "kpi_plan" | "sales_plan";
 
 export async function raiseAlert(
   s: VenueHandle,

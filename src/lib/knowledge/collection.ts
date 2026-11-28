@@ -158,6 +158,21 @@ export function getPageCollectionId(pageId: string): string {
   return `page_${pageId}`;
 }
 
+/** Свойства нового блока «Коллекция» из меню «/». Первый вид — список,
+ *  и называется он «Список» (раньше стояло «Галерея» при виде-списке). */
+export function kbCollectionSlashProps(pageId: string | null) {
+  return {
+    view: "list" as const,
+    title: "Коллекция",
+    viewTitle: KB_COLLECTION_VIEW_LABELS.list,
+    collectionId: pageId ? getPageCollectionId(pageId) : createCollectionId(),
+    schemaJson: KB_COLLECTION_EMPTY_SCHEMA,
+    visibleFieldIdsJson: KB_COLLECTION_DEFAULT_VISIBLE_FIELDS,
+    fieldOrderIdsJson: KB_COLLECTION_DEFAULT_VISIBLE_FIELDS,
+    viewId: "",
+  };
+}
+
 export function parseCollectionSchemaJson(value: unknown): KbCollectionSchema {
   if (typeof value === "string" && value.trim() === "") {
     return { version: 1, fields: [] };
@@ -277,12 +292,20 @@ export function normalizeCollectionViewType(value: unknown): KbCollectionView {
   return value === "table" ? "table" : "list";
 }
 
+const LEGACY_LIST_VIEW_NAME = "Галерея";
+
 export function normalizeCollectionViewName(
   value: unknown,
   view: KbCollectionView,
 ): string {
   if (typeof value !== "string") return KB_COLLECTION_VIEW_LABELS[view];
   const title = value.trim();
+  // Меню «/» до 27.11.2026 записывало виду-списку имя «Галерея» в свойства
+  // блока. Строки видов переименовала миграция 419, а из текста страниц это
+  // имя возвращалось при дублировании страницы и копировании блока.
+  if (view === "list" && title === LEGACY_LIST_VIEW_NAME) {
+    return KB_COLLECTION_VIEW_LABELS.list;
+  }
   return title || KB_COLLECTION_VIEW_LABELS[view];
 }
 

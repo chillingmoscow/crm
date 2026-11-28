@@ -5,6 +5,7 @@ import { BellRing } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { usePushSubscription } from "@/hooks/use-push-subscription";
+import { PUSH_PROMPT_COOKIE, type PushPromptState } from "@/lib/ui/push-prompt-pref";
 
 const DISMISS_KEY = "push-prompt-dismissed";
 
@@ -16,7 +17,12 @@ const DISMISS_KEY = "push-prompt-dismissed";
  * подсказка про установку на экран «Домой». Управлять push потом можно
  * из ⚙ в колокольчике.
  */
-export function PushPromptBanner() {
+export function PushPromptBanner({
+  initial,
+}: {
+  /** Решение из cookie: «show», «ios» (подсказка про экран «Домой») или нет. */
+  initial?: PushPromptState;
+}) {
   const {
     supported,
     configured,
@@ -25,13 +31,15 @@ export function PushPromptBanner() {
     busy,
     standalone,
     isIOS,
+    ready,
     enable,
   } = usePushSubscription();
 
-  // По умолчанию скрыт (true) — чтобы SSR и первый клиентский рендер
-  // совпадали (оба → null), без hydration-mismatch. Реальное значение
-  // читаем из localStorage после монтирования.
-  const [dismissed, setDismissed] = useState(true);
+  // Отклонён ли баннер — localStorage, прочитанный после монтирования. До
+  // чтения (и на сервере) решение берём из cookie (`initial`): её пишет
+  // браузер, поэтому страница сразу рисуется с баннером или без него, и он
+  // не выезжает сверху, сдвигая всё вниз.
+  const [dismissed, setDismissed] = useState<boolean | null>(null);
 
   useEffect(() => {
     try {
@@ -50,19 +58,27 @@ export function PushPromptBanner() {
     setDismissed(true);
   };
 
-  if (!configured || dismissed || subscribed) {
-    return null;
-  }
-
-  const iosNeedsInstall = isIOS && !standalone;
+  const known = ready && dismissed !== null;
+  const iosNeedsInstall = known ? isIOS && !standalone : initial === "ios";
   // На iOS-вкладке Notification.permission неинформативен (Push API нет) —
   // показываем install-подсказку, гейтим только dismissed/subscribed.
   // Для остальных — только настоящий первый заход (permission "default"):
   // после grant/deny (в т.ч. если потом выключили push в ⚙ — там остаётся
   // "granted") баннер больше не навязывается; управлять можно из ⚙.
-  if (!iosNeedsInstall && (!supported || permission !== "default")) {
-    return null;
-  }
+  const wanted =
+    configured &&
+    !dismissed &&
+    !subscribed &&
+    (iosNeedsInstall || (supported && permission === "default"));
+  const visible = known ? wanted : configured && (initial === "show" || initial === "ios");
+  const state: PushPromptState = wanted ? (iosNeedsInstall ? "ios" : "show") : "hide";
+
+  useEffect(() => {
+    if (!known) return;
+    document.cookie = `${PUSH_PROMPT_COOKIE}=${state}; path=/; max-age=31536000; samesite=lax`;
+  }, [known, state]);
+
+  if (!visible) return null;
 
   return (
     <div className="flex items-center gap-3 border-b border-brand/20 bg-brand/5 px-4 md:px-6 py-2">

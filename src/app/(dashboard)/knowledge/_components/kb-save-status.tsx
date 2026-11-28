@@ -109,7 +109,8 @@ function Badge({
     <span
       className={cn(
         "inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs whitespace-nowrap",
-        tone === "muted" && "bg-muted text-muted-foreground",
+        // Тихая метка рядом с путём, без подложки: это состояние, не кнопка.
+        tone === "muted" && "text-muted-foreground",
         tone === "error" && "bg-destructive/10 text-destructive",
       )}
     >

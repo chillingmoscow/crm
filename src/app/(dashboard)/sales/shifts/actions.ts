@@ -158,7 +158,8 @@ async function loadMonthPlan(
     console.error(`[sales] план месяца не прочитан: ${r.error.message}`);
     return undefined;
   }
-  return r.data ? Number(r.data.turnover) : null;
+  // Строка может хранить только план алкоголя (KPI старших) — тогда плана оборота нет.
+  return r.data && r.data.turnover != null ? Number(r.data.turnover) : null;
 }
 /**
  * Смены активного заведения. С `month` («2026-11») — только дни этого месяца:

@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getCachedUser } from "@/lib/supabase/server";
-import { loadSchedule } from "./actions";
+import { loadSchedule, loadShiftAttendance } from "./actions";
 import { unwrapAction } from "@/lib/actions/result";
 import { ScheduleClient } from "./_components/schedule-client";
 import { loadCalendarTasks } from "./tasks/actions";
-import { addDays, weekStart } from "@/lib/schedule/utils";
+import { loadAttendanceAttention } from "@/app/(dashboard)/people/payroll/actions";
+import { attentionKey, type AttentionSnapshot } from "@/lib/payroll/attention-snapshot";
+import { addDays, dateInZone, weekStart } from "@/lib/schedule/utils";
+import { readSchedulePrefs } from "@/lib/schedule/view-pref-server";
 
 export const metadata: Metadata = { title: "Расписание" };
 export default async function SchedulePage({
@@ -28,23 +31,56 @@ export default async function SchedulePage({
     parsedDate.toISOString().slice(0, 10) === params.date
       ? params.date
       : undefined;
-  const showTasks = params.showTasks === "1";
-  const week = initialDate ? weekStart(initialDate) : null;
-  const [data, calendarTasks] = await Promise.all([
+  const urlTasks = params.showTasks === undefined ? undefined : params.showTasks === "1";
+  const pinnedWeek = initialDate ? weekStart(initialDate) : null;
+  const tasksRange = (week: string) => ({ from: week, to: addDays(week, 6) });
+  const loadTasks = (week: string) =>
+    loadCalendarTasks(tasksRange(week)).then(unwrapAction).catch(() => null);
+  // Задачи по `?showTasks=1` с известной неделей — вместе с расписанием.
+  const [data, urlTasksData] = await Promise.all([
     loadSchedule().then(unwrapAction),
-    showTasks
-      ? loadCalendarTasks(week ? { from: week, to: addDays(week, 6) } : undefined).then(unwrapAction).catch(() => null)
+    urlTasks && pinnedWeek ? loadTasks(pinnedWeek) : null,
+  ]);
+  // Всё, от чего зависит раскладка сетки, — до первой разметки, вторым
+  // шагом (нужны пояс заведения и права): иначе страница появлялась, а потом
+  // перестраивалась — подставлялся запомненный вид, приезжали задачи,
+  // значки отметок у смен и уведомление «ждут проверки».
+  const now = Date.now();
+  const today = dateInZone(new Date(now), data.timezone);
+  const week = pinnedWeek ?? weekStart(today);
+  const prefs = await readSchedulePrefs(data.venueId, data.userId);
+  const canPlan = data.permissions.includes("schedule.view_all");
+  const showTasks = urlTasks ?? prefs.showTasks ?? !canPlan;
+  const canViewAttendance = canPlan && data.permissions.includes("payroll.view");
+  const attentionMonths = [today.slice(0, 7), week.slice(0, 7), addDays(week, 6).slice(0, 7)];
+  const [calendarTasks, attendance, attention] = await Promise.all([
+    // Задачи по адресу с неделей уже запрошены в первом шаге — даже если не
+    // загрузились, второй раз не просим (клиент повторит сам).
+    urlTasks && pinnedWeek ? urlTasksData : showTasks ? loadTasks(week) : null,
+    canViewAttendance
+      ? loadShiftAttendance(week).then(unwrapAction).then((marks) => ({ week, marks })).catch(() => null)
       : null,
+    canViewAttendance
+      ? loadAttendanceAttention(attentionMonths)
+          .then(unwrapAction)
+          .then((items): AttentionSnapshot => ({ key: attentionKey(attentionMonths), items, at: now }))
+          .catch(() => undefined)
+      : undefined,
   ]);
   return (
     <ScheduleClient
       key={data.venueId}
       initial={data}
       initialCalendarTasks={calendarTasks}
-      initialShowTasks={params.showTasks === undefined ? undefined : showTasks}
+      initialShowTasks={urlTasks}
+      initialPrefs={prefs}
+      initialAttendance={attendance}
+      initialAttention={attention}
+      initialNow={now}
+      initialWeek={week}
       initialDate={initialDate}
       initialSwap={/^[0-9a-f-]{36}$/i.test(params.swap ?? "") ? params.swap : undefined}
-      initialTask={showTasks && /^[0-9a-f-]{36}$/i.test(params.task ?? "") ? params.task : undefined}
+      initialTask={urlTasks && /^[0-9a-f-]{36}$/i.test(params.task ?? "") ? params.task : undefined}
       initialView={
         params.view === "templates" || params.view === "list" || params.view === "week"
           ? params.view

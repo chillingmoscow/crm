@@ -61,7 +61,7 @@ function TimeColumn({ label, items, selected, onSelect }: { label: string; items
   return (
     <div className="min-w-0">
       <p className="mb-1 text-center text-xs text-muted-foreground">{label}</p>
-      <div role="group" aria-label={label} className="flex max-h-52 touch-pan-y flex-col gap-0.5 overflow-y-auto overscroll-y-contain px-0.5 [scrollbar-width:thin]">
+      <div role="group" aria-label={label} className="flex max-h-52 touch-pan-y flex-col gap-0.5 overflow-y-auto overscroll-y-contain px-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {items.map((item) => <button key={item} ref={item === selected ? selectedRef : undefined}
           type="button" aria-label={`${label}: ${item}`} aria-pressed={item === selected} onClick={() => onSelect(item)}
           className={cn("h-8 w-14 shrink-0 rounded-md text-sm tabular-nums outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring", item === selected ? "bg-brand text-white" : "hover:bg-accent")}>

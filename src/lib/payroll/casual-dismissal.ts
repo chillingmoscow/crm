@@ -71,7 +71,7 @@ export async function processCasualDismissal(id?: string) {
     if (!job.steps.telegram_report) {
       let sent = false;
       await telegram(async () => {
-        sent = await reportRemoval(db, chats, `${job.name ?? "Сотрудник"} (разовый)`);
+        sent = await reportRemoval(db, chats, `${job.name ?? "Сотрудник"} (подменный)`);
       });
       job.steps.telegram_report = true;
       if (!sent) job.steps.telegram_report_skipped = true;

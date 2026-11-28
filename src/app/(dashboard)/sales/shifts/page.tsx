@@ -7,12 +7,11 @@ import {
 import { loadSales } from "./actions";
 import { ShiftsClient } from "./_components/shifts-client";
 import { validDate } from "@/lib/sales/time";
-import { loadDayArchive } from "../day-actions";
 import { SalesNoAccess } from "../_components/sales-no-access";
 
 export const metadata: Metadata = { title: "Смены" };
 
-const TABS = ["values", "employees", "comments", "history"];
+const TABS = ["values", "cash", "employees", "comments", "history"];
 
 export default async function SalesShiftsPage({
   searchParams,
@@ -23,7 +22,6 @@ export default async function SalesShiftsPage({
     to?: string;
     day?: string;
     tab?: string;
-    source?: string;
   }>;
 }) {
   if (!(await getCachedUser())) redirect("/login");
@@ -47,24 +45,13 @@ export default async function SalesShiftsPage({
     ? {
         date: day,
         tab: TABS.includes(query.tab ?? "") ? query.tab! : "values",
-        source:
-          query.source === "archive"
-            ? ("archive" as const)
-            : ("native" as const),
       }
     : undefined;
-  const archive =
-    selection &&
-    (selection.source === "archive" ||
-      !initial.days.some((d) => d.business_date === selection.date))
-      ? await loadDayArchive(initial.venueId, selection.date)
-      : null;
   return (
     <ShiftsClient
       key={initial.venueId}
       initial={initial}
       selection={selection}
-      selectedArchive={archive}
     />
   );
 }

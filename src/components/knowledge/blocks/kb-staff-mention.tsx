@@ -1,8 +1,7 @@
 "use client";
 
 import { createReactInlineContentSpec } from "@blocknote/react";
-import { personInitials } from "@/lib/format/initials";
-import { avatarImageUrl } from "@/lib/people/avatar-thumb";
+import { PersonAvatar } from "@/components/people/person-avatar";
 
 /**
  * Atomic @-mention сотрудника. Аналог kbPageMention'а, но с
@@ -29,7 +28,6 @@ export const kbStaffMentionInlineContent = createReactInlineContentSpec(
         fullName: string;
         avatarUrl: string;
       };
-      const initials = personInitials(props.fullName);
       return (
         <a
           href={`/people/staff/${props.userId}`}
@@ -38,18 +36,7 @@ export const kbStaffMentionInlineContent = createReactInlineContentSpec(
           draggable={false}
           data-kb-staff-mention={props.userId}
         >
-          {props.avatarUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={avatarImageUrl(props.avatarUrl, 64)}
-              alt=""
-              className="size-[14px] rounded-full object-cover bg-muted shrink-0"
-            />
-          ) : (
-            <span className="size-[14px] rounded-full bg-muted text-muted-foreground inline-flex items-center justify-center text-[8px] font-semibold shrink-0">
-              {initials}
-            </span>
-          )}
+          <PersonAvatar src={props.avatarUrl} name={props.fullName || "Без имени"} size="xs" interactive={false} />
           <span>{props.fullName || "Без имени"}</span>
         </a>
       );

@@ -1,6 +1,6 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getCachedUser } from "@/lib/supabase/server";
 import { chunk } from "@/lib/supabase/fetch-all";
 
 /**
@@ -69,10 +69,9 @@ export async function getNotifications(
   args: GetNotificationsArgs = {},
 ): Promise<Notification[]> {
   const { scope = "active", before, beforeId, limit = 50 } = args;
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Пользователь — из кэша запроса: страница «Уведомления» зовёт это на
+  // сервере рядом с раскладкой, второй поход в Auth не нужен.
+  const [supabase, user] = await Promise.all([createClient(), getCachedUser()]);
   if (!user) return [];
 
   let query = supabase

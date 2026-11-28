@@ -1,5 +1,5 @@
 "use client";
-import { unwrapAction } from "@/lib/actions/result";
+import { unwrapAction, type ActionResult } from "@/lib/actions/result";
 import { useEffect, useState } from "react";
 import { Settings2 } from "lucide-react";
 import { toast } from "sonner";
@@ -180,13 +180,19 @@ function Form({
  */
 export function FinanceExecutionSettingsSection({
   venueId,
+  initial,
 }: {
   venueId: string;
+  /** Настройки, загруженные сервером: секция сразу рисуется заполненной. */
+  initial?: ActionResult<FinanceExecutionConfiguration | null>;
 }) {
-  const [data, setData] = useState<FinanceExecutionConfiguration | null>(null),
+  const [servedVenueId] = useState(venueId);
+  const [data, setData] = useState<FinanceExecutionConfiguration | null>(
+      initial?.ok ? initial.data : null,
+    ),
     [open, setOpen] = useState(false),
-    [error, setError] = useState<string | null>(null),
-    [loading, setLoading] = useState(true);
+    [error, setError] = useState<string | null>(initial && !initial.ok ? initial.error : null),
+    [loading, setLoading] = useState(!initial);
   // Форму держим смонтированной, пока панель уезжает (docs/motion.md);
   // каждое открытие — новый ключ, форма начинается с сохранённых данных.
   const [session, setSession] = useState(0);
@@ -195,6 +201,9 @@ export function FinanceExecutionSettingsSection({
     setOpen(true);
   };
   useEffect(() => {
+    // Данные, присланные сервером для этого заведения, уже на экране —
+    // запрос не нужен (секция не меняет высоту после загрузки скриптов).
+    if (initial && venueId === servedVenueId) return;
     let live = true;
     setData(null);
     setOpen(false);
@@ -214,7 +223,7 @@ export function FinanceExecutionSettingsSection({
     return () => {
       live = false;
     };
-  }, [venueId]);
+  }, [venueId, initial, servedVenueId]);
   // Пока данные грузятся, секция стоит на месте заглушкой: страница не прыгает.
   // Без доступа (пустой ответ) секции нет.
   if (loading || (data && data.venueId !== venueId))

@@ -127,6 +127,7 @@ export type TaskMessage = {
   chat_id: string;
   state: string;
   error: string | null;
+  attempts: number;
 };
 export type TaskPreview = {
   definition_id: string;

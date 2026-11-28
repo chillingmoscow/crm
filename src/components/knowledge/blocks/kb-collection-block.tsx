@@ -417,7 +417,9 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
       const addNode = measure.querySelector<HTMLElement>(
         "[data-kb-view-add-measure]",
       );
-      const gap = 6;
+      // Промежуток берём из CSS ряда, а не константой: иначе расчёт
+      // расходится с вёрсткой и вкладки налезают на кнопки справа.
+      const gap = Number.parseFloat(getComputedStyle(measure).columnGap) || 0;
       const moreWidth = (moreNode?.getBoundingClientRect().width ?? 86) + gap;
       const addWidth =
         editable && tabNodes.length > 0
@@ -2004,12 +2006,12 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
                   <button
                     type="button"
                     className="kb-collection-view-tab kb-collection-view-more"
-                    aria-label="Еще виды"
+                    aria-label="Ещё виды"
                     onPointerDown={stopBlockInteraction}
                     onMouseDown={stopBlockInteraction}
                     onClick={stopBlockInteraction}
                   >
-                    {hiddenViewTabs.length} еще...
+                    {hiddenViewTabs.length} ещё
                   </button>
                 </PopoverTrigger>
                 <PopoverContent
@@ -2025,7 +2027,7 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
                     <Input
                       value={viewSearch}
                       className="kb-collection-view-overflow-search"
-                      placeholder="Найти вид..."
+                      placeholder="Найти вид…"
                       aria-label="Найти вид"
                       onPointerDown={stopBlockInteraction}
                       onMouseDown={stopBlockInteraction}
@@ -2225,7 +2227,7 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
                 className="kb-collection-view-tab kb-collection-view-more"
                 data-kb-view-more-measure
               >
-                99 еще...
+                99 ещё
               </span>
               <span
                 className="kb-collection-view-add-inline"
@@ -2540,8 +2542,13 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
           }}
         >
           <FileText className="size-5" />
-          <span className="font-medium">Нет записей</span>
-          {canCreate && <span>Создать первую запись</span>}
+          <span className="font-medium text-foreground">Записей пока нет</span>
+          {canCreate && (
+            <span className="inline-flex items-center gap-1 text-brand">
+              <Plus className="size-4" />
+              Добавить запись
+            </span>
+          )}
         </button>
       ) : items.length > 0 && sortedItems.length === 0 ? (
         <div className="kb-collection-state">

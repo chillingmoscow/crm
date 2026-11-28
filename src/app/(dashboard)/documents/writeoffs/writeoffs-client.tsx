@@ -27,7 +27,6 @@ import { PeriodStepper } from "@/components/shared/period-stepper";
 import { Metric, MetricStrip } from "@/components/shared/metric-strip";
 import { Money } from "@/components/shared/money";
 import { AnimatedMoney, AnimatedNumber } from "@/components/shared/animated-money";
-import tabStyle from "@/components/shared/workspace-tabs.module.css";
 import {
   DataTable,
   TableBulkBar,
@@ -45,7 +44,6 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { csvCell } from "@/lib/sales/csv";
 import { formatDateCell } from "@/lib/format/date";
 import { countRu } from "@/lib/format/plural";
@@ -92,7 +90,6 @@ import {
 } from "./actions";
 import { unwrapAction } from "@/lib/actions/result";
 
-type Source = "native" | "archive";
 
 const definitions = [
   { id: "date", label: "Дата", size: 120, min: 100, visible: true },
@@ -164,14 +161,6 @@ function poolView(data: WriteoffData) {
   };
 }
 
-const latestArchiveMonth = (data: WriteoffData, fallback: string) =>
-  (
-    data.archives
-      .map((r) => r.business_date)
-      .sort()
-      .at(-1) ?? fallback
-  ).slice(0, 7) + "-01";
-
 function shiftMonth(month: string, delta: number) {
   const [y, m] = month.split("-").map(Number);
   const d = new Date(Date.UTC(y, m - 1 + delta, 1));
@@ -212,7 +201,17 @@ const humanJobError = (text: string | null) =>
     ? text
     : "Не удалось получить списания из Quick Resto. Сохранённые данные не изменены.";
 
-export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
+export function WriteoffsClient({
+  initial,
+  initialDeduction,
+}: {
+  initial: WriteoffData;
+  /**
+   * Удержание за текущий месяц, загруженное сервером: строка удержания над
+   * таблицей приходит в первой разметке и не сдвигает таблицу вниз.
+   */
+  initialDeduction?: { month: string; visible: boolean; posted: PostedWriteoffDeduction | null };
+}) {
   const router = useRouter();
   const params = useSearchParams();
   const maxMonth = `${initial.currentMonth}-01`;
@@ -228,21 +227,15 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
       monthParam && MONTH_PARAM.test(monthParam) && `${monthParam}-01` <= maxMonth
         ? `${monthParam}-01`
         : null;
-    const source: Source =
-      doc || initial.connected ? "native" : "archive";
     const month = doc
       ? `${doc.business_date.slice(0, 7)}-01`
-      : (fromUrl ??
-        (source === "native"
-          ? maxMonth
-          : latestArchiveMonth(initial, initial.currentMonth)));
+      : (fromUrl ?? maxMonth);
     const detail = doc
-      ? (writeoffRows([doc], [], "native", poolView(initial))[0] ?? null)
+      ? (writeoffRows([doc], poolView(initial))[0] ?? null)
       : null;
-    return { source, month, detail };
+    return { month, detail };
   });
   const [data, setData] = useState(initial),
-    [source, setSource] = useState<Source>(start.source),
     [month, setMonth] = useState(start.month),
     [kind, setKind] = useState(""),
     [pool, setPool] = useState<WriteoffPoolFilter | "">(""),
@@ -257,7 +250,11 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
       visible: boolean;
       posted: PostedWriteoffDeduction | null;
       failed: boolean;
-    } | null>(null),
+    } | null>(() =>
+      initialDeduction?.month === start.month
+        ? { ...initialDeduction, failed: false }
+        : null,
+    ),
     [deductionAttempt, setDeductionAttempt] = useState(0);
   // Панель держим смонтированной, пока она уезжает (docs/motion.md).
   const shownDetail = useExitValue(detail);
@@ -271,15 +268,10 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
     data.connected && data.permissions.includes("inventory.sync_quickresto");
   const canSettings = data.permissions.includes("org.manage_venues");
   const poolOf = useMemo(() => poolView(data), [data]);
-  const nativeRows = useMemo(
-    () => writeoffRows(data.documents, data.archives, "native", poolOf),
+  const allRows = useMemo(
+    () => writeoffRows(data.documents, poolOf),
     [data, poolOf],
   );
-  const archiveRows = useMemo(
-    () => writeoffRows(data.documents, data.archives, "archive"),
-    [data],
-  );
-  const allRows = source === "native" ? nativeRows : archiveRows;
   const st = useTableState({
     tableId: `stock-writeoffs.${data.venueId}`,
     columns: columnsConfig,
@@ -287,8 +279,6 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
   });
   const hasFilters = !!kind || !!pool;
   const searching = !!st.search.trim();
-  const inMonth = (list: WriteoffRow[]) =>
-    applyWriteoffConditions(list, month, "", "", "");
   const monthRows = useMemo(
     () => applyWriteoffConditions(allRows, month, "", "", ""),
     [allRows, month],
@@ -297,14 +287,19 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
     () => applyWriteoffConditions(allRows, month, kind, pool, st.search),
     [allRows, month, kind, pool, st.search],
   );
-  // Массовое разнесение: только у того, кто разносит, и только на вкладке Quick Resto.
-  const selectable = canAssign && source === "native";
+  // Массовое разнесение: только у того, кто разносит.
+  const selectable = canAssign;
   const { setRowSelection } = st;
   useEffect(() => {
     setRowSelection({});
-  }, [month, source, kind, pool, st.search, setRowSelection]);
+  }, [month, kind, pool, st.search, setRowSelection]);
   useEffect(() => {
-    if (source !== "native" || !canSeeDeduction) return;
+    if (!canSeeDeduction) return;
+    // Месяц, присланный сервером, уже на экране — повторный запрос не нужен,
+    // пока его не просят («Повторить»). Условие по состоянию, а не по флагу:
+    // двойной запуск эффектов в StrictMode его не ломает.
+    if (deductionAttempt === 0 && initialDeduction?.month === month && deduction?.month === month)
+      return;
     let active = true;
     loadWriteoffDeduction(initial.venueId, month)
       .then(unwrapAction)
@@ -321,7 +316,9 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
     return () => {
       active = false;
     };
-  }, [source, month, canSeeDeduction, initial.venueId, deductionAttempt]);
+    // `deduction` нарочно не в зависимостях: запрос — по смене месяца.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [month, canSeeDeduction, initial.venueId, deductionAttempt, initialDeduction]);
   const reloadDeduction = useCallback(
     () => setDeductionAttempt((n) => n + 1),
     [],
@@ -338,11 +335,8 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
     [deductionLoaded, data, month],
   );
   const unassigned = useMemo(
-    () =>
-      source === "native"
-        ? applyWriteoffConditions(allRows, month, "", "unassigned", "").length
-        : 0,
-    [allRows, month, source],
+    () => applyWriteoffConditions(allRows, month, "", "unassigned", "").length,
+    [allRows, month],
   );
   const columns = useMemo<ColumnDef<WriteoffRow>[]>(() => {
     const fields: ColumnDef<WriteoffRow>[] = definitions.map(
@@ -494,10 +488,7 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
     firstPage();
   };
 
-  const job =
-    source === "native"
-      ? data.jobs.find((j) => j.month.startsWith(month.slice(0, 7)))
-      : undefined;
+  const job = data.jobs.find((j) => j.month.startsWith(month.slice(0, 7)));
   // Ошибка — не ожидание: без спиннера.
   const pending = !!job && (job.state === "pending" || job.state === "running");
   // Опрос: при загрузке — раз в 10 с; после ошибки сервер повторяет сам,
@@ -524,25 +515,12 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
     setDetail(null);
     firstPage();
   }
-  function changeSource(next: Source) {
-    setSource(next);
-    setDetail(null);
-    setKind("");
-    setPool("");
-    firstPage();
-    if (
-      next === "archive" &&
-      !data.archives.some((r) => r.business_date.startsWith(month.slice(0, 7)))
-    )
-      setMonth(latestArchiveMonth(data, month.slice(0, 7)));
-  }
   async function refresh() {
     setBusy(true);
     try {
       setData(
         unwrapAction(await requestWriteoffs(data.venueId, month.slice(0, 7))),
       );
-      setSource("native");
       toast.success("Обновление запрошено. Результат появится автоматически.");
     } catch (e) {
       toast.error(
@@ -638,12 +616,7 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
     try {
       const fresh = unwrapAction(await loadWriteoffs(data.venueId)),
         byId = new Map(
-          writeoffRows(
-            fresh.documents,
-            fresh.archives,
-            source,
-            poolView(fresh),
-          ).map((r) => [r.id, r]),
+          writeoffRows(fresh.documents, poolView(fresh)).map((r) => [r.id, r]),
         );
       const freshRows = applyWriteoffConditions(
         [...byId.values()],
@@ -659,10 +632,8 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
           return (
             old &&
             r.pool === old.pool &&
-            (r.native
-              ? r.native.source_hash === old.native?.source_hash &&
-                r.native.missing_at === old.native?.missing_at
-              : r.archive?.id === old.archive?.id)
+            r.native.source_hash === old.native.source_hash &&
+            r.native.missing_at === old.native.missing_at
           );
         });
       if (!unchanged) {
@@ -687,7 +658,7 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
       );
       const a = document.createElement("a");
       a.href = url;
-      a.download = `Списания-${source === "native" ? "QuickResto" : "Архив"}-${month.slice(0, 7)}.csv`;
+      a.download = `Списания-${month.slice(0, 7)}.csv`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
@@ -713,8 +684,6 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
       : null;
   const sum = writeoffTotal(rows),
     types = [...new Set(allRows.map((r) => r.kind))].sort();
-  const showTabs = data.archives.length > 0 || !data.connected;
-  const native = source === "native";
 
   const header = (
     <TablePageHeader
@@ -807,7 +776,7 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
           }}
           secondaryActions={
             <>
-              {native && canSync && (
+              {canSync && (
                 <TableIconButton
                   label="Обновить из Quick Resto"
                   disabled={busy || pending}
@@ -863,7 +832,7 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
           ]}
         />
       )}
-      {native && (filtersOpen || pool) && (
+      {(filtersOpen || pool) && (
         <TableFilterChip
           label="Разнесение"
           value={pool}
@@ -893,7 +862,7 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
     </Button>
   );
 
-  const deductionLine = native && deductionLoaded && (
+  const deductionLine = deductionLoaded && (
     <WriteoffDeductionLine
       month={month}
       status={deductionStatus}
@@ -903,7 +872,7 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
       onRetry={reloadDeduction}
     />
   );
-  const notices = native && (
+  const notices = (
     <>
       {deductionStatus?.state === "stale" && deductionLine}
       {unassigned > 0 && (
@@ -964,7 +933,7 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
     </>
   );
 
-  const metrics = native ? (
+  const metrics = (
     <MetricStrip label="Итоги за месяц">
       <Metric
         primary
@@ -991,28 +960,6 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
         hint={unassigned > 0 ? "Месяц не посчитан" : undefined}
       />
     </MetricStrip>
-  ) : (
-    <MetricStrip label="Итоги за месяц">
-      <Metric
-        primary
-        label="Сумма архивных записей"
-        value={<AnimatedMoney value={sum.total === 0 ? 0 : sum.value} />}
-        hint={
-          sum.total === 0
-            ? "Записей с суммой нет"
-            : sum.value === null
-              ? "В архиве нет сумм этих записей"
-              : sum.known < sum.total
-                ? `Сумма есть у ${sum.known} из ${countRu(sum.total, "записи", "записей", "записей")}`
-                : "Без удалённых записей"
-        }
-      />
-      <Metric label="Записей" value={<AnimatedNumber value={rows.length} />} />
-      <Metric
-        label="Нужна сверка"
-        value={<AnimatedNumber value={rows.filter((r) => r.issues.length > 0).length} />}
-      />
-    </MetricStrip>
   );
 
   const empty =
@@ -1032,12 +979,6 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
         icon={RefreshCw}
         title="Получаем списания из Quick Resto"
         description="Можно продолжить работу: журнал обновится автоматически"
-      />
-    ) : !native ? (
-      <EmptyState
-        icon={ClipboardList}
-        title="За этот месяц записей нет"
-        description="Выберите другой месяц"
       />
     ) : !data.connected ? (
       <EmptyState
@@ -1065,8 +1006,7 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
       {notices}
       {rows.length ? (
         <>
-          {/* Смена источника — как вкладка: итоги всплывают и досчитываются заново. */}
-          <div key={source} className="motion-rise">
+          <div className="motion-rise">
             {metrics}
           </div>
           {deductionStatus?.state !== "stale" && deductionLine}
@@ -1153,25 +1093,7 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
       <Breadcrumbs items={[{ label: "Документы" }, { label: "Списания" }]} />
       {header}
       {conditions}
-      {showTabs ? (
-        <Tabs
-          value={source}
-          onValueChange={(v) => changeSource(v as Source)}
-          className={tabStyle.tabs}
-        >
-          <TabsList aria-label="Источник списаний">
-            <TabsTrigger value="native">
-              Quick Resto · {inMonth(nativeRows).length}
-            </TabsTrigger>
-            <TabsTrigger value="archive">
-              Архив Glide · {inMonth(archiveRows).length}
-            </TabsTrigger>
-          </TabsList>
-          <TabsContent value={source}>{body}</TabsContent>
-        </Tabs>
-      ) : (
-        body
-      )}
+      {body}
       {shownDetail && (
         <WriteoffDrawer
           key={shownDetail.id}

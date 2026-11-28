@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { Star } from "lucide-react";
 import { toast } from "sonner";
 
+import { errorText } from "@/lib/actions/error-text";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { addKbFavorite, removeKbFavorite } from "@/lib/knowledge/favorites";
+import { KB_COMMAND_EVENT, type KbCommand } from "@/lib/kb-hotkeys";
 import { cn } from "@/lib/utils";
 
 /**
@@ -22,7 +23,6 @@ export function KbFavoriteToggle({
   pageId: string;
   initialFavorited: boolean;
 }) {
-  const router = useRouter();
   const [favorited, setFavorited] = useState(initialFavorited);
   const [, startTransition] = useTransition();
 
@@ -37,6 +37,17 @@ export function KbFavoriteToggle({
     setFavorited(initialFavorited);
   }, [initialFavorited, pageId]);
 
+  // Хоткей Mod+Shift+F (KB_COMMAND_EVENT) — то же, что нажатие звёздочки.
+  const toggleRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    const onCommand = (e: Event) => {
+      const command = (e as CustomEvent<{ command: KbCommand }>).detail.command;
+      if (command === "toggle-favorite") toggleRef.current();
+    };
+    window.addEventListener(KB_COMMAND_EVENT, onCommand);
+    return () => window.removeEventListener(KB_COMMAND_EVENT, onCommand);
+  }, []);
+
   const onToggle = () => {
     const next = !favorited;
     // Optimistic — мгновенно меняем UI, server-call в background.
@@ -47,16 +58,18 @@ export function KbFavoriteToggle({
         : await removeKbFavorite(pageId);
       if (error) {
         setFavorited(!next); // revert
-        toast.error(`Не удалось обновить избранное: ${error}`);
-        return;
+        toast.error(errorText(error, "Не удалось обновить избранное"));
       }
-      // Refresh tree-section в KB-сайдбаре.
-      router.refresh();
+      // Дерево с «Избранным» обновится само: действие вызывает
+      // revalidatePath, и Next возвращает свежее дерево в ответе. Лишний
+      // router.refresh() перерисовывал страницу второй раз.
     });
   };
 
+  toggleRef.current = onToggle;
+
   return (
-    <IconTooltip label={favorited ? "Убрать из избранного" : "В избранное"}>
+    <IconTooltip label={favorited ? "Убрать из избранного" : "Добавить в избранное"}>
       <button
         type="button"
         aria-label={favorited ? "Убрать из избранного" : "Добавить в избранное"}
@@ -65,12 +78,12 @@ export function KbFavoriteToggle({
         className={cn(
           "inline-flex items-center justify-center size-9 rounded-lg bg-background transition-colors",
           favorited
-            ? "text-yellow-500 hover:bg-yellow-500/10"
+            ? "text-amber-500 hover:bg-amber-500/10"
             : "text-muted-foreground hover:bg-accent hover:text-foreground",
         )}
       >
         <Star
-          className={cn("w-[18px] h-[18px]", favorited && "fill-current")}
+          className={cn("size-[18px]", favorited && "fill-amber-400")}
         />
       </button>
     </IconTooltip>

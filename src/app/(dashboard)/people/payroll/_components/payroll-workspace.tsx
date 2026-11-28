@@ -2,6 +2,7 @@
 
 import { useExitValue } from "@/hooks/use-exit-value";
 import { AttendanceAttentionNotice } from "./attendance-attention";
+import type { AttentionSnapshot } from "@/lib/payroll/attention-snapshot";
 import {
   useCallback,
   useEffect,
@@ -57,6 +58,7 @@ import {
   ContextMenuSeparator,
 } from "@/components/ui/context-menu";
 import { PayoutPlan, cachedPayoutPlan, prefetchPayoutPlan } from "./payout-plan";
+import { KpiTab } from "./kpi-tab";
 import type { PayoutPlanView } from "../payout-actions";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { PayrollLedger } from "./payroll-ledger";
@@ -137,11 +139,14 @@ export function PayrollWorkspace({
   initialMonth,
   venueName = null,
   initialOverviewOpen,
+  initialAttention,
 }: {
   data: PayrollData;
   initialMonth: string;
   /** Выбор «Обзора» из cookie — сервер рисует его сразу в нужном состоянии. */
   initialOverviewOpen?: boolean;
+  /** «Ждут проверки» за месяц — сервером, чтобы уведомление не сдвигало страницу. */
+  initialAttention?: AttentionSnapshot;
   /** Для шапки выгрузки ведомости. */
   venueName?: string | null;
 }) {
@@ -216,6 +221,8 @@ export function PayrollWorkspace({
     if (params.has("entry")) setTab("journal");
     // Ссылка из уведомления о черновике плана выплат.
     else if (params.get("tab") === "plan") setTab("plan");
+    // Ссылка из карточки «KPI не подведены» в «На разбор».
+    else if (params.get("tab") === "kpi") setTab("kpi");
   }, []);
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get("transfer");
@@ -548,6 +555,7 @@ export function PayrollWorkspace({
       <TabsTrigger value="statement">Ведомость · {active.length}</TabsTrigger>
       <TabsTrigger value="payments">Выплаты</TabsTrigger>
       <TabsTrigger value="journal">Начисления и удержания</TabsTrigger>
+      {can("view") && <TabsTrigger value="kpi">KPI</TabsTrigger>}
       {can("view") && <TabsTrigger value="plan">План выплат</TabsTrigger>}
     </TabsList>
   );
@@ -717,11 +725,11 @@ export function PayrollWorkspace({
               <RefreshFailedNotice className="mb-4" {...autoRefresh} />
             )}
             {can("view") && (
-              <AttendanceAttentionNotice className="mb-4" months={[monthStart.slice(0, 7)]} />
+              <AttendanceAttentionNotice className="mb-4" months={[monthStart.slice(0, 7)]} initial={initialAttention} />
             )}
             {/* Итоги вкладки мягко всплывают и досчитываются заново при её смене. */}
             <div key={tab} className="motion-rise">
-            {tab === "plan" ? (
+            {tab === "kpi" ? null : tab === "plan" ? (
               <PlanMetrics view={planView} />
             ) : tab === "payments" ? (
               <PaymentsMetrics data={data} month={monthStart} />
@@ -769,6 +777,7 @@ export function PayrollWorkspace({
             {tab === "plan" && (
               <PayoutPlan venueId={data.venueId} view={planView} onView={setPlanView} onChanged={reload} />
             )}
+            {tab === "kpi" && <KpiTab month={month} />}
             {emptyMonth ? (
               <EmptyState
                 className="mt-6"
@@ -1026,7 +1035,7 @@ export function PayrollWorkspace({
               </section>
               </ExpandPanel>
             )}
-            {!emptyMonth && !planTab && <section className={`${s.ledger} ${s.functionalTable}`}>
+            {!emptyMonth && !planTab && tab !== "kpi" && <section className={`${s.ledger} ${s.functionalTable}`}>
               {role && (
                 <div className={s.ledgerHeading}>
                   <button

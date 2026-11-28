@@ -92,7 +92,7 @@ export async function provisionCasualQuickResto(employeeId: string): Promise<{ p
     const named = splitCasualName(claim.name ?? "", ledger);
     const firstName = named.firstName.trim(), lastName = named.lastName.trim();
     if (!firstName || !lastName) throw new Error("Укажите имя и фамилию");
-    if (!claim.role_id) throw new Error("У разового не указана должность");
+    if (!claim.role_id) throw new Error("У подменного не указана должность");
     const settings = checked(
       await db
         .from<{ store_ids: number[]; master_store_ids: number[]; tips_uri: string | null }>(

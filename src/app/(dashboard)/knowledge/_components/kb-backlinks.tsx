@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
 
+import { KbDocSection } from "@/app/(dashboard)/knowledge/_components/kb-doc-section";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 import type { KbPageRow } from "@/types/knowledge";
 
@@ -21,22 +22,16 @@ export function KbBacklinks({ rows }: KbBacklinksProps) {
   if (rows.length === 0) return null;
 
   return (
-    <section
-      aria-label="Обратные ссылки"
-      className="flex flex-col gap-2 rounded-lg border bg-card p-4"
-    >
-      <h2 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70">
-        На эту страницу ссылаются
-      </h2>
-      <ul className="flex flex-col gap-1">
+    <KbDocSection title="Ссылаются сюда" count={rows.length}>
+      <ul className="-mx-2 flex flex-col gap-0.5">
         {rows.map((row) => (
           <li key={row.id}>
             <Link
               href={`/knowledge/${row.slug}`}
-              className="flex items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-accent"
+              className="group/title flex min-h-9 items-center gap-2.5 rounded-md px-2 text-sm transition-colors hover:bg-accent"
             >
               <KbPageIcon icon={row.icon} color={row.icon_color} size={16} />
-              <span className="flex-1 truncate">
+              <span className="flex-1 truncate transition-colors group-hover/title:text-brand">
                 {row.title || "Без названия"}
               </span>
               <ArrowUpRight className="size-3.5 text-muted-foreground" />
@@ -44,6 +39,6 @@ export function KbBacklinks({ rows }: KbBacklinksProps) {
           </li>
         ))}
       </ul>
-    </section>
+    </KbDocSection>
   );
 }

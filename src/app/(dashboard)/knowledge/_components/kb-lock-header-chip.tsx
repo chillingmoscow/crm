@@ -5,6 +5,8 @@ import { Loader2, Lock, Pencil, Unlock } from "lucide-react";
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
+import { errorText } from "@/lib/actions/error-text";
+import { statusTones } from "@/components/ui/status-badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -51,11 +53,16 @@ export function KbLockHeaderChip({
   const hasActions = canEditBase || canLock;
   const Icon = localUnlocked ? Unlock : Lock;
   const label = localUnlocked ? "Разблокировано" : "Заблокировано";
+  // На телефоне от чипа остаётся замок ~24×20: зону нажатия растягиваем по
+  // высоте до 44px, но не вбок — соседние значки шапки стоят вплотную.
+  // Бейдж статуса DS: та же форма и палитра, что у StatusBadge
+  // (statusTones), но кнопкой — у бейджа есть действия. Заблокировано —
+  // neutral, разблокировано для себя — info.
   const chipClassName = cn(
-    "inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[13px] font-medium transition-colors",
+    "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 max-sm:px-1.5 relative max-sm:before:absolute max-sm:before:inset-x-0 max-sm:before:-inset-y-3 max-sm:before:content-[''] text-xs font-medium transition-colors [&_svg]:size-3 [&_svg]:shrink-0",
     localUnlocked
-      ? "border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100 data-[state=open]:bg-sky-100 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-300 dark:hover:bg-sky-500/20"
-      : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground data-[state=open]:bg-muted data-[state=open]:text-foreground",
+      ? cn(statusTones.info, "hover:bg-brand/15 data-[state=open]:bg-brand/15")
+      : cn(statusTones.neutral, "hover:text-foreground data-[state=open]:text-foreground"),
   );
 
   const unlockForMe = () =>
@@ -70,15 +77,15 @@ export function KbLockHeaderChip({
     setUnlockPending(false);
     if (error) {
       setKbPageStateOverride(pageId, { locked: true, localUnlocked: false });
-      toast.error(`Не удалось разблокировать страницу: ${error}`);
+      toast.error(errorText(error, "Не удалось разблокировать страницу"));
     }
   };
 
   if (!hasActions) {
     return (
       <span className={chipClassName} aria-label="Страница заблокирована">
-        <Icon className="size-3.5" />
-        <span>{label}</span>
+        <Icon className="size-3" />
+        <span className="max-sm:hidden">{label}</span>
       </span>
     );
   }
@@ -91,8 +98,8 @@ export function KbLockHeaderChip({
         aria-label="Снова заблокировать страницу для себя"
         onClick={lockForMe}
       >
-        <Icon className="size-3.5" />
-        <span>{label}</span>
+        <Icon className="size-3" />
+        <span className="max-sm:hidden">{label}</span>
       </button>
     );
   }
@@ -105,14 +112,14 @@ export function KbLockHeaderChip({
           className={chipClassName}
           aria-label="Страница заблокирована"
         >
-          <Icon className="size-3.5" />
-          <span>{label}</span>
+          <Icon className="size-3" />
+          <span className="max-sm:hidden">{label}</span>
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
         sideOffset={6}
-        className="w-[240px] rounded-[10px] p-1.5"
+        className="w-56"
       >
         {canEditBase && (
           <DropdownMenuItem
@@ -120,7 +127,7 @@ export function KbLockHeaderChip({
               e.preventDefault();
               unlockForMe();
             }}
-            className="gap-3 rounded-md px-2.5 py-2 text-[15px]"
+            className="gap-2.5"
           >
             <Pencil className="size-4 shrink-0" />
             <span>Редактировать</span>
@@ -133,7 +140,7 @@ export function KbLockHeaderChip({
               if (!unlockPending) void unlockForEveryone();
             }}
             disabled={unlockPending}
-            className="gap-3 rounded-md px-2.5 py-2 text-[15px]"
+            className="gap-2.5"
           >
             {unlockPending ? (
               <Loader2 className="size-4 shrink-0 animate-spin" />

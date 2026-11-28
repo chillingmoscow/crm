@@ -374,7 +374,7 @@ export function CollectionColumnMenu({
       {descriptionOpen && (
         <Input
           value={descriptionDraft}
-          placeholder="Добавить описание..."
+          placeholder="Добавить описание…"
           className="kb-collection-column-description-input"
           aria-label="Описание свойства"
           onPointerDown={stopBlockInteraction}
@@ -614,6 +614,7 @@ export function CollectionColumnMenu({
         <ArrowRight className="size-4" />
         <span>Вставить справа</span>
       </button>
+      <div className="kb-collection-column-menu-separator" role="separator" />
       <button
         type="button"
         className="kb-collection-column-menu-row text-destructive"
@@ -715,7 +716,7 @@ function CollectionColumnInsertPanel({
       <Button
         type="button"
         size="sm"
-        className="kb-collection-column-create-btn"
+        className="w-full"
         onClick={(event) => {
           stopBlockMenuAction(event);
           onCreate();

@@ -1,83 +1,119 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { RotateCcw, Search, Trash2, X } from "lucide-react";
 import {
-  differenceInCalendarDays,
-  isToday,
-  isYesterday,
-} from "date-fns";
+  getCoreRowModel,
+  useReactTable,
+  type ColumnDef,
+  type RowSelectionState,
+} from "@tanstack/react-table";
+import { formatDistanceToNow } from "date-fns";
+import { ru } from "date-fns/locale";
+import { Eye, RotateCcw, SearchX, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import {
-  hardDeleteKbPages,
-  restoreKbPages,
-} from "@/lib/knowledge/pages";
-import { TrashItemRow, type TrashRow } from "./trash-item-row";
+  DataTable,
+  ROW_MENU_COLUMN_SIZE,
+  TableBulkBar,
+  TableControls,
+  TablePageHeader,
+  TableRowMenu,
+  useTableState,
+} from "@/components/shared/table";
+import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
+import { countRu } from "@/lib/format/plural";
+import { hardDeleteKbPages, restoreKbPages } from "@/lib/knowledge/pages";
+import {
+  KB_TRASH_BUCKET_LABEL,
+  kbTrashBucket,
+  kbTrashMatches,
+} from "@/lib/knowledge/trash";
+import { KbEmptyTrashButton } from "./kb-empty-trash-button";
 
-/** Срок хранения страницы в корзине до автоудаления, дней. UI-расчёт;
- *  фактический auto-purge cron — отдельная задача (вне scope этого PR). */
-const RETENTION_DAYS = 30;
-interface KbTrashClientProps {
-  rows: TrashRow[];
+export interface TrashRow {
+  id: string;
+  slug: string;
+  title: string | null;
+  icon: string | null;
+  iconColor: string | null;
+  /** Сколько подстраниц уехало в корзину вместе со страницей. */
+  descendantsCount: number;
+  deletedAt: string | null;
+  deletedByName: string | null;
 }
 
-/** Корзина базы знаний: поиск, мультиселект, массовые
- *  «Восстановить» / «Удалить навсегда», группировка по дате удаления
- *  и обратный отсчёт хранения. Дизайн — sheerly.pen `QvQz1`. */
-export function KbTrashClient({ rows }: KbTrashClientProps) {
+const LABELS: Record<string, string> = {
+  title: "Страница",
+  deletedBy: "Удалил",
+  deletedAt: "Удалена",
+};
+
+const COLUMNS = [
+  { id: "title", defaultSize: 420 },
+  { id: "deletedBy", defaultSize: 200 },
+  { id: "deletedAt", defaultSize: 180 },
+];
+
+const pages = (n: number) => countRu(n, "страница", "страницы", "страниц");
+
+/**
+ * Корзина базы знаний по образцу списков (DS → «List-страница»): шапка со
+ * счётчиком и поиском, таблица с выбором и группами по дате удаления,
+ * меню строки и панель выделенного. Срока хранения нет: страница лежит,
+ * пока её не восстановят или не удалят навсегда (решение 27.11.2026).
+ */
+export function KbTrashClient({ rows }: { rows: TrashRow[] }) {
   const router = useRouter();
-  const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  const st = useTableState({ tableId: "kb-trash.v2", columns: COLUMNS });
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [pending, startTransition] = useTransition();
+  const [confirmIds, setConfirmIds] = useState<string[] | null>(null);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) =>
-      (r.title || "Без названия").toLowerCase().includes(q),
-    );
-  }, [rows, query]);
-
-  const groups = useMemo(() => groupByDeletion(filtered), [filtered]);
-
-  const selectedIds = useMemo(
-    () => filtered.filter((r) => selected.has(r.id)).map((r) => r.id),
-    [filtered, selected],
+  // Сначала недавно удалённые: группы по дате идут подряд.
+  const visible = useMemo(
+    () =>
+      rows
+        .filter((r) => kbTrashMatches(r.title || "Без названия", st.search))
+        .sort((a, b) => (b.deletedAt ?? "").localeCompare(a.deletedAt ?? "")),
+    [rows, st.search],
   );
-
-  const toggle = (id: string) =>
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+  const selectedIds = visible.filter((r) => rowSelection[r.id]).map((r) => r.id);
+  const clearSelection = () => setRowSelection({});
+  // После действия снимаем отметки только с тех страниц, над которыми оно
+  // было: восстановление одной строки из меню ⋯ не сбрасывает остальной выбор.
+  const unselect = (ids: string[]) =>
+    setRowSelection((prev) => {
+      const next = { ...prev };
+      for (const id of ids) delete next[id];
       return next;
     });
 
-  const clearSelection = () => setSelected(new Set());
-
-  // restoreKbPages / hardDeleteKbPages — partial-success: продолжают
-  // после ошибки и применяют успешные. Поэтому всегда refresh'им и
-  // чистим выбор, а об успехе/ошибке сообщаем независимо (Codex #314 P2).
+  // restoreKbPages / hardDeleteKbPages применяют успешные и продолжают после
+  // ошибки, поэтому всегда обновляем список и снимаем выбор (Codex #314 P2).
   const runRestore = (ids: string[]) => {
     if (ids.length === 0) return;
     startTransition(async () => {
       const { restored, error } = await restoreKbPages(ids);
       if (restored > 0) {
-        toast.success(
-          restored > 1
-            ? `Восстановлено страниц: ${restored}`
-            : "Страница восстановлена",
+        toast.success(restored > 1 ? `Восстановлено: ${pages(restored)}` : "Страница восстановлена");
+      }
+      if (error) {
+        toast.error(
+          restored > 0
+            ? "Часть страниц не восстановилась. Попробуйте ещё раз"
+            : ids.length > 1
+              ? "Не удалось восстановить страницы. Попробуйте ещё раз"
+              : "Не удалось восстановить страницу. Попробуйте ещё раз",
         );
       }
-      if (error) toast.error(`Часть не восстановлена: ${error}`);
-      clearSelection();
+      unselect(ids);
       router.refresh();
     });
   };
@@ -87,187 +123,269 @@ export function KbTrashClient({ rows }: KbTrashClientProps) {
     startTransition(async () => {
       const { deleted, error } = await hardDeleteKbPages(ids);
       if (deleted > 0) {
-        toast.success(
-          deleted > 1
-            ? `Удалено навсегда: ${deleted}`
-            : "Страница удалена навсегда",
+        toast.success(deleted > 1 ? `Удалено навсегда: ${pages(deleted)}` : "Страница удалена навсегда");
+      }
+      if (error) {
+        toast.error(
+          deleted > 0
+            ? "Часть страниц не удалилась. Попробуйте ещё раз"
+            : ids.length > 1
+              ? "Не удалось удалить страницы. Попробуйте ещё раз"
+              : "Не удалось удалить страницу. Попробуйте ещё раз",
         );
       }
-      if (error) toast.error(`Часть не удалена: ${error}`);
-      clearSelection();
+      setConfirmIds(null);
+      unselect(ids);
       router.refresh();
     });
   };
 
-  return (
-    <div
-      className={`flex flex-col gap-6 ${
-        selectedIds.length > 0 ? "pb-24" : ""
-      }`}
-    >
-      {/* Toolbar: поиск по названию (клиентский фильтр). */}
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Поиск по названию"
-          className="pl-9"
-        />
-      </div>
-
-      {/* Floating bulk-bar — фиксирован снизу по центру экрана, вне
-          потока: список не дёргается при выделении, и не нужно
-          скроллить наверх к действиям при выборе строк внизу. */}
-      {selectedIds.length > 0 && (
-        <div className="fixed inset-x-0 bottom-6 z-40 flex justify-center px-4 pointer-events-none">
-          {/* flex-wrap + max-w: на узких экранах (≤375px) панель
-              переносит кнопки на 2 ряда вместо ухода за край —
-              bulk-действия остаются доступны (Codex #323 P1). */}
-          <div className="pointer-events-auto flex max-w-[calc(100vw-2rem)] flex-wrap items-center justify-center gap-x-3 gap-y-2 rounded-2xl border bg-card px-4 py-2.5 shadow-lg">
-            <span className="text-sm font-semibold text-brand">
-              Выбрано {selectedIds.length} {pageWord(selectedIds.length)}
+  const columns = useMemo<ColumnDef<TrashRow>[]>(
+    () => [
+      {
+        id: "select",
+        size: 44,
+        minSize: 44,
+        maxSize: 44,
+        enableResizing: false,
+        cell: ({ row }) => (
+          <Checkbox
+            checked={row.getIsSelected()}
+            onCheckedChange={(checked) => row.toggleSelected(checked === true)}
+            aria-label={`Выбрать «${row.original.title || "Без названия"}»`}
+            className="align-middle"
+          />
+        ),
+      },
+      {
+        id: "title",
+        header: LABELS.title,
+        cell: ({ row }) => {
+          const r = row.original;
+          return (
+            <span className="flex min-w-0 items-center gap-2.5">
+              <KbPageIcon icon={r.icon} color={r.iconColor} size={16} />
+              <span className="flex min-w-0 flex-col">
+                <Link
+                  href={`/knowledge/${r.slug}`}
+                  onClick={(e) => e.stopPropagation()}
+                  className="truncate font-medium transition-colors hover:text-brand"
+                >
+                  {r.title || "Без названия"}
+                </Link>
+                {r.descendantsCount > 0 && (
+                  <span className="text-xs text-muted-foreground">
+                    Вместе с {countRu(r.descendantsCount, "подстраницей", "подстраницами", "подстраницами")}
+                  </span>
+                )}
+              </span>
             </span>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2 text-muted-foreground hover:text-foreground"
-              onClick={clearSelection}
-            >
-              <X />
-              Снять
-            </Button>
-            <span
-              className="hidden h-5 w-px bg-border sm:block"
-              aria-hidden
+          );
+        },
+      },
+      {
+        id: "deletedBy",
+        header: LABELS.deletedBy,
+        cell: ({ row }) => row.original.deletedByName ?? "—",
+      },
+      {
+        id: "deletedAt",
+        header: LABELS.deletedAt,
+        cell: ({ row }) =>
+          row.original.deletedAt
+            ? formatDistanceToNow(new Date(row.original.deletedAt), { addSuffix: true, locale: ru })
+            : "—",
+      },
+      {
+        id: "actions",
+        size: ROW_MENU_COLUMN_SIZE,
+        minSize: ROW_MENU_COLUMN_SIZE,
+        maxSize: ROW_MENU_COLUMN_SIZE,
+        enableResizing: false,
+        cell: ({ row }) => (
+          <TableRowMenu
+            label={`Действия со страницей «${row.original.title || "Без названия"}»`}
+            actions={[
+              {
+                label: "Открыть для чтения",
+                icon: <Eye className="size-4" />,
+                onSelect: () => router.push(`/knowledge/${row.original.slug}`),
+              },
+              {
+                label: "Восстановить",
+                icon: <RotateCcw className="size-4" />,
+                disabled: pending,
+                onSelect: () => runRestore([row.original.id]),
+              },
+              {
+                label: "Удалить навсегда",
+                icon: <Trash2 className="size-4" />,
+                destructive: true,
+                separatorBefore: true,
+                disabled: pending,
+                onSelect: () => setConfirmIds([row.original.id]),
+              },
+            ]}
+          />
+        ),
+      },
+    ],
+    // runRestore и router стабильны по смыслу; pending обновляет доступность.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pending],
+  );
+
+  const table = useReactTable({
+    data: visible,
+    columns,
+    getRowId: (r) => r.id,
+    state: {
+      columnOrder: ["select", ...st.columnOrder, "actions"],
+      columnSizing: st.columnSizing,
+      rowSelection,
+    },
+    enableRowSelection: true,
+    onRowSelectionChange: setRowSelection,
+    onColumnSizingChange: st.setColumnSizing,
+    getCoreRowModel: getCoreRowModel(),
+    columnResizeMode: "onChange",
+  });
+
+  const confirmRows = rows.filter((r) => confirmIds?.includes(r.id));
+  const confirmChildren = confirmRows.reduce((sum, r) => sum + r.descendantsCount, 0);
+
+  return (
+    <div className={selectedIds.length > 0 ? "flex flex-col gap-6 pb-28 md:pb-24" : "flex flex-col gap-6"}>
+      <TablePageHeader
+        title="Корзина"
+        count={rows.length === 0 ? undefined : st.search ? `${visible.length} из ${rows.length}` : rows.length}
+        actions={
+          rows.length > 0 ? (
+            <TableControls
+              search={{
+                value: st.search,
+                onChange: st.setSearch,
+                open: st.searchOpen,
+                onOpenChange: st.setSearchOpen,
+                placeholder: "Название страницы",
+              }}
+              primaryActions={<KbEmptyTrashButton count={rows.length} />}
             />
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={pending}
-              onClick={() => runRestore(selectedIds)}
-              className="border-brand/30 text-brand hover:bg-brand/10 hover:text-brand"
-            >
-              <RotateCcw />
+          ) : undefined
+        }
+      />
+
+      {rows.length === 0 ? (
+        <EmptyState
+          icon={Trash2}
+          title="Корзина пуста"
+          description="Удалённые страницы попадают сюда вместе с подстраницами и лежат, пока их не восстановят или не удалят навсегда"
+        />
+      ) : visible.length === 0 ? (
+        <EmptyState
+          icon={SearchX}
+          title="Ничего не найдено"
+          description="В корзине нет страниц с таким названием"
+        />
+      ) : (
+        <DataTable
+          table={table}
+          label="Удалённые страницы"
+          labels={LABELS}
+          onColumnSizingChange={st.setColumnSizing}
+          onRowClick={(row) => row.toggleSelected()}
+          empty={null}
+          controlColumns={["select", "actions"]}
+          renderControlHeader={(header) =>
+            header.column.id === "select" ? (
+              <Checkbox
+                checked={
+                  table.getIsAllRowsSelected() || (table.getIsSomeRowsSelected() && "indeterminate")
+                }
+                onCheckedChange={(checked) => table.toggleAllRowsSelected(checked === true)}
+                aria-label="Выбрать все страницы"
+                className="align-middle"
+              />
+            ) : null
+          }
+          groups={{
+            key: (r) => kbTrashBucket(r.deletedAt),
+            header: (_rows, key) => KB_TRASH_BUCKET_LABEL[key as keyof typeof KB_TRASH_BUCKET_LABEL],
+          }}
+          mobile={{
+            label: "Удалённые страницы",
+            nameColumn: "title",
+            // В шапке карточки уже флажок выбора, меню ⋯ — в подвале
+            // (как в зарплате и документах).
+            actionsPlacement: "footer",
+            selection: (
+              <label className="flex min-h-10 items-center gap-3 text-sm text-muted-foreground">
+                <Checkbox
+                  checked={
+                    table.getIsAllRowsSelected() || (table.getIsSomeRowsSelected() && "indeterminate")
+                  }
+                  onCheckedChange={(checked) => table.toggleAllRowsSelected(checked === true)}
+                />
+                Выбрать все
+              </label>
+            ),
+          }}
+        />
+      )}
+
+      <TableBulkBar
+        floating
+        selectedCount={selectedIds.length}
+        onClear={clearSelection}
+        actions={
+          <>
+            <Button variant="ghost" size="sm" onClick={() => runRestore(selectedIds)} disabled={pending}>
+              <RotateCcw className="size-4" />
               Восстановить
             </Button>
             <Button
               variant="ghost"
               size="sm"
+              className="text-destructive hover:text-destructive"
+              onClick={() => setConfirmIds(selectedIds)}
               disabled={pending}
-              onClick={() => setConfirmBulkDelete(true)}
-              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
             >
-              <Trash2 />
+              <Trash2 className="size-4" />
               Удалить навсегда
             </Button>
-          </div>
-        </div>
-      )}
-
-      {filtered.length === 0 ? (
-        <EmptyState
-          icon={Search}
-          title="Ничего не найдено"
-          description="По этому запросу в корзине нет страниц. Измените запрос."
-        />
-      ) : (
-        <div className="flex flex-col gap-6">
-          {groups.map((group) => (
-            <section key={group.key} className="flex flex-col gap-2">
-              <h2 className="px-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-                {group.label}
-              </h2>
-              <ul className="flex flex-col overflow-hidden rounded-xl border bg-card divide-y">
-                {group.rows.map((row) => (
-                  <li key={row.id}>
-                    <TrashItemRow
-                      row={row}
-                      selected={selected.has(row.id)}
-                      onToggle={() => toggle(row.id)}
-                      onRestore={() => runRestore([row.id])}
-                      onHardDelete={() => runHardDelete([row.id])}
-                      pending={pending}
-                      daysLeft={daysLeft(row.deletedAt)}
-                    />
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ))}
-        </div>
-      )}
+          </>
+        }
+      />
 
       <ConfirmDialog
-        open={confirmBulkDelete}
-        onOpenChange={setConfirmBulkDelete}
-        title={`Удалить ${selectedIds.length} ${pageWord(selectedIds.length)} навсегда?`}
-        confirmLabel="Удалить навсегда"
-        destructive
+        open={confirmIds !== null}
+        onOpenChange={(open) => !open && setConfirmIds(null)}
+        tone="destructive"
+        title={
+          confirmRows.length === 1
+            ? `Удалить «${confirmRows[0].title || "Без названия"}» навсегда?`
+            : `Удалить ${pages(confirmRows.length)} навсегда?`
+        }
         consequences={[
-          { kind: "remove", text: "Подстраницы удалятся вместе с ними" },
-          { kind: "irreversible", text: "Удаление нельзя отменить" },
+          ...(confirmChildren > 0
+            ? [
+                {
+                  kind: "remove" as const,
+                  text:
+                    confirmRows.length === 1
+                      ? "Подстраницы удалятся вместе с ней"
+                      : "Подстраницы удалятся вместе с ними",
+                  count: confirmChildren,
+                },
+              ]
+            : []),
+          { kind: "irreversible" as const, text: "Восстановить будет нельзя" },
         ]}
-        onConfirm={() => {
-          setConfirmBulkDelete(false);
-          runHardDelete(selectedIds);
-        }}
+        confirmLabel="Удалить навсегда"
+        pendingLabel="Удаляем…"
+        busy={pending}
+        onConfirm={() => confirmIds && runHardDelete(confirmIds)}
       />
     </div>
   );
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────────
-
-interface TrashGroup {
-  key: string;
-  label: string;
-  rows: TrashRow[];
-}
-
-/** Группирует по «корзинной» давности удаления: Сегодня / Вчера /
- *  На прошлой неделе / Ранее. Порядок групп фиксированный. */
-function groupByDeletion(rows: TrashRow[]): TrashGroup[] {
-  const order = ["today", "yesterday", "week", "earlier"] as const;
-  const labels: Record<(typeof order)[number], string> = {
-    today: "Сегодня",
-    yesterday: "Вчера",
-    week: "На прошлой неделе",
-    earlier: "Ранее",
-  };
-  const buckets = new Map<string, TrashRow[]>();
-  for (const r of rows) {
-    const key = bucketOf(r.deletedAt);
-    const arr = buckets.get(key) ?? [];
-    arr.push(r);
-    buckets.set(key, arr);
-  }
-  return order
-    .filter((k) => buckets.has(k))
-    .map((k) => ({ key: k, label: labels[k], rows: buckets.get(k)! }));
-}
-
-function bucketOf(deletedAt: string | null): string {
-  if (!deletedAt) return "earlier";
-  const d = new Date(deletedAt);
-  if (isToday(d)) return "today";
-  if (isYesterday(d)) return "yesterday";
-  if (differenceInCalendarDays(new Date(), d) <= 7) return "week";
-  return "earlier";
-}
-
-function daysLeft(deletedAt: string | null): number {
-  if (!deletedAt) return RETENTION_DAYS;
-  const elapsed = differenceInCalendarDays(new Date(), new Date(deletedAt));
-  return Math.max(0, RETENTION_DAYS - elapsed);
-}
-
-/** RU-склонение слова «страница» по числу. */
-function pageWord(n: number): string {
-  const mod10 = n % 10;
-  const mod100 = n % 100;
-  if (mod100 >= 11 && mod100 <= 14) return "страниц";
-  if (mod10 === 1) return "страница";
-  if (mod10 >= 2 && mod10 <= 4) return "страницы";
-  return "страниц";
 }

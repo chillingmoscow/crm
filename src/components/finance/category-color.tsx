@@ -85,10 +85,19 @@ export function CategoryColorPicker({
   value,
   onChange,
   disabled,
+  ringOffsetClassName = "ring-offset-background",
+  grid = false,
 }: {
   value: string | null;
   onChange: (value: string | null) => void;
   disabled?: boolean;
+  /** Цвет зазора у кольца выбранного кружка — фон, на котором стоит выбор
+   *  (во всплывающем окне — `ring-offset-popover`, иначе в тёмной теме
+   *  вокруг кружка тёмный ободок). */
+  ringOffsetClassName?: string;
+  /** Кружки по сетке в 7 колонок (окно выбора значка: цвета над теми же
+   *  колонками, что значки), а не потоком с переносом. */
+  grid?: boolean;
 }) {
   const current = normalizePaletteColor(value);
   return (
@@ -105,7 +114,7 @@ export function CategoryColorPicker({
           </button>
         ) : null}
       </div>
-      <div className="flex flex-wrap gap-2 p-0.5">
+      <div className={grid ? "grid grid-cols-7 justify-items-center gap-1" : "flex flex-wrap gap-2 p-0.5"}>
         {CATEGORY_COLORS.map((color) => {
           const selected = current === color.name;
           return (
@@ -117,7 +126,8 @@ export function CategoryColorPicker({
               data-tip={color.label}
               onClick={() => onChange(color.name)}
               className={cn(
-                "touch-target flex size-7 items-center justify-center rounded-full text-white ring-offset-2 ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 disabled:cursor-not-allowed disabled:opacity-50",
+                "touch-target flex size-7 items-center justify-center rounded-full text-white ring-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 disabled:cursor-not-allowed disabled:opacity-50",
+                ringOffsetClassName,
                 paletteDot(color.name),
                 selected && "ring-2 ring-foreground",
               )}

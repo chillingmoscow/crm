@@ -164,7 +164,10 @@ export function ProfileSettingsPage({
   const [pendingEmailChange, setPendingEmailChange] = useState(false);
   // После того как юзер сохранил 100% профиль — карточка-онбординг исчезает.
   // Если он вернётся и опустошит поле — карточка вернётся с этим пустым шагом.
-  const [meterHidden, setMeterHidden] = useState(false);
+  // null — ещё не решали: скрыта, если профиль уже заполнен. Решение — при
+  // отрисовке, а не эффектом: иначе заполненный профиль открывался с карточкой,
+  // и она исчезала после загрузки скриптов, поднимая всю страницу.
+  const [meterHiddenChoice, setMeterHidden] = useState<boolean | null>(null);
   // Какое значение % было перед сейв-кликом — нужно чтобы триггерить
   // confetti ТОЛЬКО при переходе с <100% на 100%.
   const prevCompletionRef = useRef<number>(0);
@@ -208,12 +211,13 @@ export function ProfileSettingsPage({
     return { pct, missingSteps, isFilled };
   }, [watchedValues, avatarUrl]);
 
+  const [initialPct] = useState(completion.pct);
+  const meterHidden = meterHiddenChoice ?? initialPct === 100;
+
   // Инициализируем prevCompletion при первом рендере, чтобы не пускать
-  // конфетти у уже-100% юзера сразу после открытия страницы. Заодно
-  // скрываем onboarding-карточку, если профиль и так заполнен.
+  // конфетти у уже-100% юзера сразу после открытия страницы.
   useEffect(() => {
     prevCompletionRef.current = completion.pct;
-    if (completion.pct === 100) setMeterHidden(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

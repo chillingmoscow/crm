@@ -76,7 +76,9 @@ import {
   exportAdditional,
   loadAdditionalHistory,
   type AdditionalData,
+  type UpsellRanking,
 } from "./actions";
+import { additionalLatestMonth } from "@/lib/sales/additional-month";
 import { TARGET_LABEL } from "./upsell-labels";
 import { UpsellRankingCard } from "./upsell-ranking";
 import { legacyGroup } from "@/lib/sales/upsell-ranking";
@@ -240,6 +242,7 @@ function Detail({
   const day = row.upsell?.day ?? null;
   const bonus = additionalValue(row, "bonus");
   const unknown = row.upsell ? (readyUpsellResult(day)?.unknown ?? []) : [];
+  const imported = row.native?.request.imported_from === "glide";
   const updated = row.native?.synced_at
     ? ` · обновлено ${formatDayMonthTime(row.native.synced_at, new Date(), data.timezone)}`
     : day?.computed_at && (state === "ready" || state === "provisional")
@@ -251,9 +254,7 @@ function Detail({
       onOpenChange={(v) => !v && onClose()}
       title={`${name} · ${formatDayMonth(row.date) ?? ""}`}
       titleAccessory={
-        row.archive ? (
-          <DrawerStatus label="Архив Glide" tone="neutral" />
-        ) : state && state !== "ready" ? (
+        state && state !== "ready" ? (
           <DrawerStatus label={stateLabels[state]} tone={stateTone} />
         ) : undefined
       }
@@ -261,7 +262,7 @@ function Detail({
       footer={
         <Button variant="outline" asChild>
           <Link
-            href={`/sales/shifts?day=${row.date}&tab=values${row.archive ? "&source=archive" : ""}`}
+            href={`/sales/shifts?day=${row.date}&tab=values`}
           >
             Открыть смену
           </Link>
@@ -272,8 +273,8 @@ function Detail({
         <DrawerSummaryTotal
           label="Общая прибавка за день"
           hint={
-            row.archive
-              ? "Сумма из архива, без пересчёта"
+            imported
+              ? "Перенесено из прежнего учёта, без пересчёта"
               : bonus === null && row.upsell
                 ? state === "error"
                   ? "Нет данных: день не удалось посчитать"
@@ -400,8 +401,6 @@ function Detail({
           <DayTeamPanel
             venueId={data.venueId}
             date={row.date}
-            source={row.archive ? "archive" : "native"}
-            archiveId={row.context?.archiveId}
             kind={row.kind ?? undefined}
           />
         </TabsContent>
@@ -409,23 +408,11 @@ function Detail({
           <DayDiscussionPanel venueId={data.venueId} date={row.date} />
         </TabsContent>
         <TabsContent value="history">
-          {row.archive ? (
-            <DrawerSection
-              title="Перенесено из Glide"
-              description={`Снимок ${formatDayMonthTime(row.archive.captured_at, new Date(), data.timezone)}. Суммы сохранены без пересчёта`}
-            >
-              {row.archive.origin.ranges.map((range) => (
-                <a
-                  key={range}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="block text-sm text-brand hover:underline"
-                  href={`https://docs.google.com/spreadsheets/d/${encodeURIComponent(row.archive!.origin.spreadsheet_id)}/edit#range=${encodeURIComponent(range)}`}
-                >
-                  Строка архива {range}
-                </a>
-              ))}
-            </DrawerSection>
+          {imported ? (
+            <p className="text-sm text-muted-foreground">
+              День перенесён из прежнего учёта в Glide: суммы сохранены как были,
+              без пересчёта
+            </p>
           ) : error ? (
             <p role="alert" className="text-sm text-destructive">
               Не удалось загрузить историю. Закройте день и откройте ещё раз
@@ -462,23 +449,18 @@ function Detail({
 export function AdditionalClient({
   initial,
   initialOverviewOpen,
+  initialRanking,
 }: {
   initial: AdditionalData;
   /** Выбор «Обзора» из cookie — сервер рисует его сразу в нужном состоянии. */
   initialOverviewOpen?: boolean;
+  /** Рейтинг сотрудников за последний месяц — с сервера, если «Обзор» открыт. */
+  initialRanking?: UpsellRanking;
 }) {
   const router = useRouter();
   const [data, setData] = useState(initial),
     [tabId, setTabId] = useState<string | null>(null);
-  const latestMonth = (
-    [
-      ...initial.reports.map((r) => r.business_date),
-      ...initial.archives.map((r) => r.business_date),
-      ...initial.upsellDays.map((r) => r.business_date),
-    ]
-      .sort()
-      .at(-1) ?? initial.nextFrom
-  ).slice(0, 7);
+  const latestMonth = additionalLatestMonth(initial);
   const currentMonth = businessDate(new Date(), initial.timezone, initial.hour).slice(0, 7);
   const [month, setMonth] = useState(latestMonth);
   const [busy, setBusy] = useState(false),
@@ -620,13 +602,13 @@ export function AdditionalClient({
       ),
     [monthRows, query],
   );
-  // Первый день с данными: архив Glide раньше расчёта Sheerly.
+  // Первый день с данными: перенесённые из Glide дни раньше правил Sheerly.
   const firstDay =
     [
       ...(kind
         ? [
             data.rules.at(-1)?.valid_from,
-            ...data.archives.filter((a) => a.kind === kind).map((a) => a.business_date),
+            ...data.reports.filter((r) => r.kind === kind).map((r) => r.business_date),
           ]
         : [tab?.switchDate ?? undefined]),
     ]
@@ -755,7 +737,6 @@ export function AdditionalClient({
           "Источник",
           "Обновлено",
           "Состояние",
-          "Строки источника",
         ],
       ];
       for (const old of table.getSortedRowModel().rows) {
@@ -767,10 +748,13 @@ export function AdditionalClient({
           ...visible.map((c) =>
             c.id === "date" ? formatDateCell(r.date) : additionalValue(r, c.id),
           ),
-          r.archive ? "Архив Glide" : r.upsell ? "Sheerly, по чекам" : "Sheerly",
-          r.archive?.captured_at ?? r.native?.synced_at ?? r.upsell?.day?.computed_at ?? null,
-          state ? stateLabels[state] : "Архив",
-          r.archive?.origin.ranges.join(", ") ?? null,
+          r.native?.request.imported_from === "glide"
+            ? "Прежний учёт (Glide)"
+            : r.upsell
+              ? "Sheerly, по чекам"
+              : "Sheerly",
+          r.native?.synced_at ?? r.upsell?.day?.computed_at ?? null,
+          state ? stateLabels[state] : null,
         ]);
       }
       const url = URL.createObjectURL(
@@ -842,7 +826,6 @@ export function AdditionalClient({
   const stripKeys = ["bonus", "revenue", "primeCost"];
   const monthPoints = monthIds.has("points");
   const unknown = upsellUnknown(monthRows);
-  const archiveDays = monthRows.filter((r) => r.archive).map((r) => r.date).sort();
   const showOverview = allRows.length > 0 && monthRows.length > 0;
   const showTrend =
     groups.length > 0 &&
@@ -860,13 +843,6 @@ export function AdditionalClient({
 
   const body = (
     <div className="flex min-w-0 flex-col gap-4">
-      {archiveDays.length > 0 && (
-        <p className="text-sm text-muted-foreground">
-          {archiveDays.length === monthRows.length
-            ? "Допродажи этого месяца — из архива Glide, без пересчёта"
-            : `Дни по ${formatDayMonth(archiveDays.at(-1)!)} — из архива Glide, без пересчёта`}
-        </p>
-      )}
       {unknown.length > 0 && (
         <p
           role="status"
@@ -925,6 +901,7 @@ export function AdditionalClient({
               <UpsellRankingCard
                 venueId={data.venueId}
                 month={month}
+                initial={initialRanking}
                 // Вкладка старого вида без подразделения сама называется «legacy:bar».
                 groups={[...new Set([tab.id, ...(kind ? [legacyGroup(kind)] : [])])]}
               />

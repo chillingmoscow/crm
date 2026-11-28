@@ -340,3 +340,35 @@ test("первая выплата основного графика — по-п�
   const [row] = planFirstPayout(fixture({ earnedInMonth: 83258, avgShift: 7163, shiftsAhead: 2 }));
   assert.equal(row.breakdown.mode, "half");
 });
+
+/** Премия KPI за ноябрь: начисление 1-го с компонентом из записи журнала. */
+function withKpi(fx: ReturnType<typeof fixture>, amount: number) {
+  const kpi: Accrual = {
+    ...accrual("filipp", "2026-11-01", amount, "adjustment"),
+    components: [{ kind: "allowance", label: "KPI", amount, basis: "Ручная запись", source: "payroll-entry:k1" }],
+  };
+  const adjustment = { id: "k1", employee_id: "filipp", business_date: "2026-11-01", kind: "allowance", amount,
+    reason: "KPI за ноябрь 2026", source_ref: "payroll-entry:k1", approved: true, origin: "kpi", medium: "money" } as Adjustment;
+  return { ...fx, data: { ...fx.data, accruals: [...fx.data.accruals, kpi], adjustments: [...fx.data.adjustments, adjustment] } };
+}
+
+test("первая выплата: премия KPI не входит в половину", () => {
+  const [row] = planFirstPayout(withKpi(fixture({ earnedInMonth: 83258, avgShift: 7163, shiftsAhead: 2 }), 27000));
+  assert.equal(row.amount, 45000);
+});
+
+test("вторая выплата: премия KPI входит в остаток месяца", () => {
+  const [row] = planFirstPayout({ ...withKpi(fixture({ earnedInMonth: 83258, avgShift: 7163, shiftsAhead: 0 }), 27000), payoutNo: 2 });
+  assert.equal(row.amount, 110000);
+});
+
+test("первая выплата клинера: премия KPI не входит в заработанное за 1–15", () => {
+  const base = input({
+    employees: [employee("filipp", { payout_schedule: "cleaner" })],
+    accruals: [accrual("filipp", "2026-11-05", 20000)],
+    schedule: "cleaner",
+  });
+  const [plain] = planFirstPayout(base);
+  const [row] = planFirstPayout(withKpi(base as ReturnType<typeof fixture>, 27000));
+  assert.equal(row.amount, plain.amount);
+});

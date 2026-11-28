@@ -1,5 +1,6 @@
 import { getKbTree } from "@/lib/knowledge/tree";
 import { listMyKbFavorites } from "@/lib/knowledge/favorites";
+import { getKbRequiredReadingSummary } from "@/lib/knowledge/reading-summary";
 import { KbTreeNav } from "@/app/(dashboard)/knowledge/_components/kb-tree-nav";
 import { KbMobileTreeDrawer } from "@/app/(dashboard)/knowledge/_components/kb-mobile-tree-drawer";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -8,8 +9,7 @@ interface KbTreeNavPermissions {
   canSeeTrash: boolean;
   canDelete: boolean;
   canDuplicate: boolean;
-  canViewAudit: boolean;
-  canViewAnalytics: boolean;
+  canViewOverview: boolean;
   canImport: boolean;
   canCreate: boolean;
   canManageTemplates: boolean;
@@ -23,9 +23,10 @@ interface KbTreeNavPermissions {
  * in the same render pass shares the same DB fetch.
  */
 export async function KbTreeLoader(props: KbTreeNavPermissions) {
-  const [{ nodes }, { pages: favorites }] = await Promise.all([
+  const [{ nodes }, { pages: favorites }, readingSummary] = await Promise.all([
     getKbTree(),
     listMyKbFavorites(),
+    getKbRequiredReadingSummary(),
   ]);
 
   return (
@@ -35,8 +36,8 @@ export async function KbTreeLoader(props: KbTreeNavPermissions) {
       canSeeTrash={props.canSeeTrash}
       canDelete={props.canDelete}
       canDuplicate={props.canDuplicate}
-      canViewAudit={props.canViewAudit}
-      canViewAnalytics={props.canViewAnalytics}
+      canViewOverview={props.canViewOverview}
+      readingSummary={readingSummary}
       canImport={props.canImport}
       canCreate={props.canCreate}
       canManageTemplates={props.canManageTemplates}
@@ -50,9 +51,10 @@ export async function KbTreeLoader(props: KbTreeNavPermissions) {
  * second DB round-trip when both components render in the same pass.
  */
 export async function KbMobileTreeLoader(props: KbTreeNavPermissions) {
-  const [{ nodes }, { pages: favorites }] = await Promise.all([
+  const [{ nodes }, { pages: favorites }, readingSummary] = await Promise.all([
     getKbTree(),
     listMyKbFavorites(),
+    getKbRequiredReadingSummary(),
   ]);
 
   return (
@@ -62,8 +64,8 @@ export async function KbMobileTreeLoader(props: KbTreeNavPermissions) {
       canSeeTrash={props.canSeeTrash}
       canDelete={props.canDelete}
       canDuplicate={props.canDuplicate}
-      canViewAudit={props.canViewAudit}
-      canViewAnalytics={props.canViewAnalytics}
+      canViewOverview={props.canViewOverview}
+      readingSummary={readingSummary}
       canImport={props.canImport}
       canCreate={props.canCreate}
       canManageTemplates={props.canManageTemplates}
@@ -74,11 +76,11 @@ export async function KbMobileTreeLoader(props: KbTreeNavPermissions) {
 /** Placeholder shown while KbTreeLoader streams. */
 export function KbTreeSkeleton() {
   return (
-    <div className="flex flex-col gap-1 px-2 py-3">
+    <div className="flex flex-col gap-1 px-3.5 pt-[68px]">
       {Array.from({ length: 8 }).map((_, i) => (
         <Skeleton
           key={i}
-          className="h-7 rounded-md"
+          className="h-9 rounded-lg"
           style={{ width: `${60 + (i % 3) * 15}%`, opacity: 1 - i * 0.08 }}
         />
       ))}

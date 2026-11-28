@@ -1,6 +1,6 @@
 "use client";
 import { unwrapAction } from "@/lib/actions/result";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ComponentProps } from "react";
 import Link from "next/link";
 import { Loader2, RefreshCw, Settings2 } from "lucide-react";
 import { toast } from "sonner";
@@ -23,7 +23,6 @@ import { SettlementSettingsSection } from "./settlement-settings";
 import { CashControlSettingsSection } from "./cash-control-settings";
 import { CashMovementSettingsSection } from "./cash-movement-settings";
 import { FinanceExecutionSettingsSection } from "./finance-execution-settings";
-import { SalesPlanSettingsSection } from "./sales-plan-settings";
 
 /** Число дней между датами `YYYY-MM-DD` включительно. */
 function daysInclusive(from: string, to: string) {
@@ -31,13 +30,26 @@ function daysInclusive(from: string, to: string) {
   return Number.isFinite(ms) ? Math.max(0, Math.round(ms / 86400000) + 1) : 0;
 }
 
+/**
+ * Настройки разделов, загруженные сервером: страница приходит заполненной,
+ * разделы не меняют высоту и не исчезают после загрузки скриптов.
+ */
+export type SalesSettingsSections = {
+  settlement?: ComponentProps<typeof SettlementSettingsSection>["initial"];
+  cash?: ComponentProps<typeof CashControlSettingsSection>["initial"];
+  movement?: ComponentProps<typeof CashMovementSettingsSection>["initial"];
+  finance?: ComponentProps<typeof FinanceExecutionSettingsSection>["initial"];
+};
+
 export function SalesSettingsTab({
   initial,
   planMonth,
+  sections = {},
 }: {
   initial: SalesConfiguration;
   /** `?plan=2026-11`: сразу открыть план этого месяца. */
   planMonth?: string;
+  sections?: SalesSettingsSections;
 }) {
   const [data, setData] = useState(initial);
   const today = businessDate(
@@ -146,11 +158,14 @@ export function SalesSettingsTab({
           </p>
         )}
       </ProfileSection>
-      <SalesPlanSettingsSection
-        venueId={data.venueId}
-        currentMonth={today.slice(0, 7)}
-        openMonth={planMonth}
-      />
+      <ProfileSection
+        title="План продаж"
+        description="План оборота и доли алкоголя на месяц, журнал цен и сезонность задаются в «Статистике» — там же прогноз приложения."
+      >
+        <Button variant="outline" asChild>
+          <Link href={`/sales/statistics?plan=${planMonth ?? today.slice(0, 7)}`}>Открыть план месяца</Link>
+        </Button>
+      </ProfileSection>
       <ProfileSection
         title="Пересчёт истории"
         description="Повторно загрузим чеки и отчёты за выбранный период и применим текущие правила. Ручные исправления сохранятся."
@@ -203,10 +218,10 @@ export function SalesSettingsTab({
           </Button>
         </div>
       </ProfileSection>
-      <SettlementSettingsSection venueId={data.venueId} />
-      <CashControlSettingsSection venueId={data.venueId} />
-      <CashMovementSettingsSection venueId={data.venueId} />
-      <FinanceExecutionSettingsSection venueId={data.venueId} />
+      <SettlementSettingsSection venueId={data.venueId} initial={sections.settlement} />
+      <CashControlSettingsSection venueId={data.venueId} initial={sections.cash} />
+      <CashMovementSettingsSection venueId={data.venueId} initial={sections.movement} />
+      <FinanceExecutionSettingsSection venueId={data.venueId} initial={sections.finance} />
       <ConfirmDialog
         icon={RefreshCw}
         open={confirming}

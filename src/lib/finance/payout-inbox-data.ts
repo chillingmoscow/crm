@@ -11,7 +11,7 @@ import { createClient, getCachedPermissionChecker } from "@/lib/supabase/server"
 
 export type PayoutAlertItem = {
   id: string;
-  kind: "reconcile" | "short" | "carry" | "transfer" | "failed" | "message";
+  kind: "reconcile" | "short" | "carry" | "transfer" | "failed" | "message" | "kpi" | "kpi_plan" | "sales_plan";
   title: string;
   lines: string[];
   copy_text: string | null;
@@ -19,7 +19,7 @@ export type PayoutAlertItem = {
   created_at: string;
 };
 
-const KINDS = new Set<PayoutAlertItem["kind"]>(["reconcile", "short", "carry", "transfer", "failed", "message"]);
+const KINDS = new Set<PayoutAlertItem["kind"]>(["reconcile", "short", "carry", "transfer", "failed", "message", "kpi", "kpi_plan", "sales_plan"]);
 
 type PgError = { message: string; code?: string } | null;
 

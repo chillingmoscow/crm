@@ -120,9 +120,9 @@ async function client() {
 async function loadShiftAttendanceImpl(week: string): Promise<Record<string, ShiftAttendanceMark>> {
   if (!validDate(week)) throw new Error("Некорректная дата расписания");
   const db = await client();
-  const [{ data: { user } }, { data: venueId }, accountId, permissions] =
+  const [user, { data: venueId }, accountId, permissions] =
     await Promise.all([
-      db.auth.getUser(),
+      getCachedUser(),
       db.rpc("get_active_venue_id"),
       getCachedActiveAccountId(),
       getCachedPermissions(),
@@ -331,7 +331,7 @@ async function loadScheduleImpl(
     if (row.casual_id && !teamCasual.has(row.casual_id))
       teamCasual.set(row.casual_id, {
         id: row.casual_id,
-        name: row.casual_name ?? "Разовый сотрудник",
+        name: row.casual_name ?? "Подменный сотрудник",
         role_id: row.role_id ?? "",
         role_name: row.casual_role_name ?? "",
         model_id: null,

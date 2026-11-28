@@ -1,5 +1,5 @@
 "use client";
-import { unwrapAction } from "@/lib/actions/result";
+import { unwrapAction, type ActionResult } from "@/lib/actions/result";
 import { useEffect, useState } from "react";
 import { Settings2 } from "lucide-react";
 import { toast } from "sonner";
@@ -251,9 +251,17 @@ const audience = (c: CashControlRules) =>
       : "владельцу и финансам"
     : "выкл.";
 
-export function CashControlSettingsSection({ venueId }: { venueId: string }) {
-  const [data, setData] = useState<CashConfiguration | null>(null),
-    [error, setError] = useState<string | null>(null),
+export function CashControlSettingsSection({
+  venueId,
+  initial,
+}: {
+  venueId: string;
+  /** Настройки, загруженные сервером: секция сразу рисуется заполненной. */
+  initial?: ActionResult<CashConfiguration>;
+}) {
+  const [servedVenueId] = useState(venueId);
+  const [data, setData] = useState<CashConfiguration | null>(initial?.ok ? initial.data : null),
+    [error, setError] = useState<string | null>(initial && !initial.ok ? initial.error : null),
     [open, setOpen] = useState(false);
   // Форму держим смонтированной, пока панель уезжает (docs/motion.md);
   // каждое открытие — новый ключ, форма начинается с сохранённых данных.
@@ -263,6 +271,9 @@ export function CashControlSettingsSection({ venueId }: { venueId: string }) {
     setOpen(true);
   };
   useEffect(() => {
+    // Данные, присланные сервером для этого заведения, уже на экране —
+    // запрос не нужен (секция не меняет высоту после загрузки скриптов).
+    if (initial && venueId === servedVenueId) return;
     let live = true;
     loadCashConfiguration(venueId)
       .then(unwrapAction)
@@ -275,7 +286,7 @@ export function CashControlSettingsSection({ venueId }: { venueId: string }) {
     return () => {
       live = false;
     };
-  }, [venueId]);
+  }, [venueId, initial, servedVenueId]);
   // Нет права — секции нет (как у «Проведения финансовых операций»).
   if (error === NO_ACCESS) return null;
   const current = data?.versions[0];

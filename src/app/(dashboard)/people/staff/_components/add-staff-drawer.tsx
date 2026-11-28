@@ -399,7 +399,7 @@ export function AddStaffDrawer({
       )}
       {mode === "casual" && (
         <Button type="submit" form={FORM_ID.casual} disabled={busy || !casual.ready}>
-          {casual.pending ? "Создаём…" : casual.retry ? "Повторить" : "Создать разового"}
+          {casual.pending ? "Создаём…" : casual.retry ? "Повторить" : "Создать подменного"}
         </Button>
       )}
     </>
@@ -416,7 +416,7 @@ export function AddStaffDrawer({
         title={issued ? "PIN кассы" : "Новый сотрудник"}
         description={
           issued
-            ? [issued.name, issued.roleName, "разовый сотрудник"].filter(Boolean).join(" · ")
+            ? [issued.name, issued.roleName, "подменный сотрудник"].filter(Boolean).join(" · ")
             : undefined
         }
         footer={footer}
@@ -438,7 +438,7 @@ export function AddStaffDrawer({
               )}
               {modes.includes("casual") && (
                 <TabsTrigger value="casual" disabled={busy}>
-                  Разовый
+                  Подменный
                 </TabsTrigger>
               )}
             </ProfileTabsList>

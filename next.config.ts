@@ -1,4 +1,17 @@
+import path from "node:path";
 import type { NextConfig } from "next";
+
+// Значки BlockNote: редактор базы знаний импортирует их из react-icons
+// (заливной набор Remix и др.), а всё приложение — линейный Lucide.
+// Подменяем эти модули прослойкой на Lucide (src/lib/knowledge/bn-icons);
+// что она закрывает все импортируемые BlockNote имена, проверяет
+// bn-icons.test.mts. react-icons больше нигде в приложении не используется.
+const BN_ICON_ALIASES = Object.fromEntries(
+  ["ri", "md", "tb", "ai"].map((pack) => [
+    `react-icons/${pack}`,
+    `./src/lib/knowledge/bn-icons/${pack}.ts`,
+  ]),
+);
 
 // Derive the Supabase storage hostname from the env var
 // so images from the self-hosted Supabase instance are allowed.
@@ -19,6 +32,21 @@ const nextConfig: NextConfig = {
   output: "standalone",
   turbopack: {
     root: process.cwd(),
+    resolveAlias: BN_ICON_ALIASES,
+  },
+  // `next build` собирается webpack'ом — та же подмена значков.
+  webpack(config) {
+    config.resolve = config.resolve ?? {};
+    config.resolve.alias = {
+      ...(config.resolve.alias ?? {}),
+      ...Object.fromEntries(
+        Object.entries(BN_ICON_ALIASES).map(([from, to]) => [
+          from,
+          path.join(process.cwd(), to),
+        ]),
+      ),
+    };
+    return config;
   },
   // Skip type-check + ESLint во время `next build`. Оба гоняем
   // локально перед push'ем (`pnpm exec tsc --noEmit`, `pnpm lint`).
@@ -81,8 +109,11 @@ const nextConfig: NextConfig = {
         permanent: false,
       })),
       // KB: «Аналитика» объединена с «Дашбордом» в один экран.
-      { source: "/knowledge/analytics",          destination: "/knowledge/dashboard",          permanent: true },
-      { source: "/knowledge/analytics/:slug*",   destination: "/knowledge/dashboard/:slug*",   permanent: true },
+      // «Дашборд» базы знаний стал «Обзором» (этап 3 редизайна).
+      { source: "/knowledge/dashboard",          destination: "/knowledge/overview",           permanent: true },
+      { source: "/knowledge/dashboard/:slug*",   destination: "/knowledge/overview/:slug*",    permanent: true },
+      { source: "/knowledge/analytics",          destination: "/knowledge/overview",           permanent: true },
+      { source: "/knowledge/analytics/:slug*",   destination: "/knowledge/overview/:slug*",    permanent: true },
       // KB: отдельный журнал убран — общий журнал с фильтром раздела.
       { source: "/knowledge/audit",              destination: "/org/audit?types=kb_page",      permanent: true },
       // Правила допродаж переехали вкладкой в карточку подразделения.

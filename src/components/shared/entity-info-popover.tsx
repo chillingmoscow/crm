@@ -21,6 +21,7 @@
  * - relativeUpdatedAt — «Изменена» как «5 мин назад» вместо даты
  */
 
+import type { ReactNode } from "react";
 import { Info } from "lucide-react";
 import {
   Popover,
@@ -29,8 +30,7 @@ import {
 } from "@/components/ui/popover";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { pluralRu } from "@/lib/format/plural";
-import { personInitials } from "@/lib/format/initials";
-import { avatarImageUrl } from "@/lib/people/avatar-thumb";
+import { PersonAvatar } from "@/components/people/person-avatar";
 
 interface EntityInfoPopoverProps {
   /** Заголовок попапа: «О должности», «О сотруднике» и т.д. */
@@ -65,6 +65,9 @@ interface EntityInfoPopoverProps {
   extraRows?: { label: string; value: string | null }[];
   /** Когда true — «Изменена» отображается относительно («5 мин назад»). */
   relativeUpdatedAt?: boolean;
+  /** Под таблицей, через линию: ссылка на связанный экран
+   *  (база знаний — «Статистика страницы»). */
+  footer?: ReactNode;
 }
 
 function formatDate(iso: string | null, withTime: boolean): string {
@@ -105,21 +108,9 @@ function MiniAvatar({
   name: string | null | undefined;
   avatarUrl: string | null | undefined;
 }) {
-  const initials = personInitials(name);
-  if (avatarUrl) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={avatarImageUrl(avatarUrl, 64)}
-        alt={name ?? ""}
-        className="size-4 rounded-full object-cover bg-muted shrink-0"
-      />
-    );
-  }
+  // Внутри всплывающей карточки — тихий аватар без карточки фото.
   return (
-    <span className="size-4 rounded-full bg-muted text-muted-foreground inline-flex items-center justify-center text-xs font-semibold leading-none shrink-0">
-      {initials}
-    </span>
+    <PersonAvatar src={avatarUrl ?? null} name={name ?? ""} size="xs" interactive={false} />
   );
 }
 
@@ -146,6 +137,7 @@ export function EntityInfoPopover({
   showTime = false,
   relativeUpdatedAt = false,
   extraRows = [],
+  footer,
 }: EntityInfoPopoverProps) {
   const candidates: (Omit<Row, "value"> & { value: string | null })[] = [
     { label: "ID", value: id.slice(0, 8) },
@@ -224,6 +216,12 @@ export function EntityInfoPopover({
             </div>
           ))}
         </dl>
+        {footer && (
+          <>
+            <div className="h-px bg-border -mx-5 mt-3.5 mb-3" />
+            {footer}
+          </>
+        )}
       </PopoverContent>
     </Popover>
   );

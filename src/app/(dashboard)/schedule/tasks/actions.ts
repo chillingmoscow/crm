@@ -148,7 +148,7 @@ async function loadTasksImpl(): Promise<TaskData> {
       .order("name").order("subtitle"),
     db
       .from<TaskMessage[]>("schedule_task_messages")
-      .select("id,kind,business_date,chat_id,state,error")
+      .select("id,kind,business_date,chat_id,state,error,attempts")
       .eq("venue_id", venueId)
       .in("state", ["error", "review"])
       .order("business_date", { ascending: false })
@@ -456,7 +456,23 @@ export async function previewTasks(from: string, to: string) {
   if (r.error) return { error: actionErrorMessage(r.error, "Не удалось подготовить задачи") };
   return { rows: r.data as TaskPreview[] };
 }
-export async function retryTaskMessage(id: string, evidence: string) {
+/** «Сообщение в чате есть»: закрыть проверку без повторной отправки. */
+export async function confirmTaskMessage(id: string) {
+  try {
+    z.string().uuid().parse(id);
+    const { db } = await context();
+    const r = await db.rpc("schedule_confirm_task_message", { p_id: id });
+    if (r.error) throw new Error(r.error.message);
+    revalidatePath("/schedule");
+    return { ok: true };
+  } catch (e) {
+    return {
+      error: actionErrorMessage(e, "Не удалось отметить сообщение"),
+    };
+  }
+}
+
+export async function retryTaskMessage(id: string, evidence = "") {
   try {
     z.string().uuid().parse(id);
     const { db } = await context();
@@ -491,14 +507,23 @@ async function loadTaskInstructionPageImpl(id: string) {
       parent_id: string | null;
       content: import("@/types/knowledge").KbBlock[];
       updated_at: string | null;
+      icon: string | null;
+      icon_color: string | null;
+      created_by: string | null;
     }>("kb_pages")
-    .select("id,title,slug,parent_id,content,updated_at")
+    .select("id,title,slug,parent_id,content,updated_at,icon,icon_color,created_by")
     .eq("id", z.string().uuid().parse(id))
     .is("deleted_at", null)
     .single();
   if (page.error || !page.data)
     return { error: "Страница инструкции недоступна" };
-  return { instruction: { ...page.data, page_id: page.data.id, files: [] } };
+  const { icon, icon_color, created_by, ...rest } = page.data;
+  return {
+    instruction: { ...rest, page_id: rest.id, files: [] },
+    // Для правки инструкции прямо в задаче: автосохранение пишет страницу
+    // целиком, иконку нельзя потерять.
+    page: { icon, icon_color, created_by },
+  };
 }
 async function taskInstructionFileUrlImpl(url: string) {
   if (!url.startsWith("kbfile://")) return url;

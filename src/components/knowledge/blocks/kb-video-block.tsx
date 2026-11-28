@@ -177,7 +177,7 @@ function VideoPreview(
       onClick={onSelect}
       onMouseDown={(e) => e.preventDefault()}
     >
-      <MoreHorizontal className="size-4" strokeWidth={2.25} />
+      <MoreHorizontal className="size-4" />
     </button>
   );
 
@@ -245,7 +245,7 @@ function KbVideoBlock(
   if (url !== "" && showPreview === false) {
     return (
       <KbMediaChip
-        icon={<VideoIcon size={18} strokeWidth={1.75} />}
+        icon={<VideoIcon size={18} />}
         label={props.block.props.name || url}
         caption={props.block.props.caption}
         variant="minimal"
@@ -256,7 +256,7 @@ function KbVideoBlock(
   return (
     <ResizableFileBlockWrapper
       {...wrapperProps}
-      buttonIcon={<VideoIcon size={24} strokeWidth={1.5} />}
+      buttonIcon={<VideoIcon size={24} />}
     >
       <VideoPreview {...wrapperProps} />
     </ResizableFileBlockWrapper>

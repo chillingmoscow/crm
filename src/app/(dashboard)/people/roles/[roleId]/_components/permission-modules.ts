@@ -148,6 +148,12 @@ const SALES: PermissionSectionDef = {
       add: ["sales.sync_shifts", "sales.adjust_shifts", "sales.export_shifts"],
     },
     {
+      id: "plan",
+      label: "Планирование",
+      description: "задаёт план продаж месяца, журнал цен и сезонность",
+      add: ["sales.plan"],
+    },
+    {
       id: "full",
       label: FULL,
       description: "настраивает расчёт смен и пересчитывает историю",

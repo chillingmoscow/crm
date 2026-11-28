@@ -15,7 +15,6 @@ import {
   Database,
   Type as TypeIcon,
   Pencil,
-  ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -937,16 +936,14 @@ export function KbPageProperties({
                     : "Добавить свойство"}
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="min-w-[220px]">
-                <div className="px-2 py-1.5 text-[12px] font-medium text-muted-foreground/70">
-                  Добавить свойство
-                </div>
-                <DropdownMenuSeparator />
+              {/* Список выбора без заголовка внутри (DS «Выпадающий список
+                  вариантов»): кнопка уже говорит «Добавить свойство». */}
+              <DropdownMenuContent align="start" className="w-56">
                 {CREATABLE_PROPERTY_TYPES.map((t) => {
                   const Icon = TYPE_ICONS[t];
                   return (
                     <DropdownMenuItem key={t} onSelect={() => addProperty(t)}>
-                      <Icon className="size-3.5 text-muted-foreground" />
+                      <Icon className="size-4" />
                       {TYPE_LABELS[t]}
                     </DropdownMenuItem>
                   );
@@ -990,19 +987,19 @@ function PropertyGroupHeader({
   return (
     <div
       className={cn(
-        "flex min-h-6 items-center gap-2 px-1.5 text-[12px] text-muted-foreground",
+        "flex min-h-6 items-center gap-2 px-1.5 text-xs text-muted-foreground",
         className,
       )}
     >
       <Icon className="size-3.5 shrink-0 text-muted-foreground/70" />
       <span className="font-medium leading-none">{label}</span>
       {meta && (
-        <span className="min-w-0 truncate rounded-full bg-muted/55 px-1.5 py-0.5 text-[11px] leading-none text-muted-foreground/75">
+        <span className="min-w-0 truncate rounded-full bg-muted/55 px-1.5 py-0.5 text-xs leading-none text-muted-foreground">
           {meta}
         </span>
       )}
       {typeof count === "number" && (
-        <span className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-1 text-[10px] font-medium leading-none text-muted-foreground/70">
+        <span className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1.5 text-xs font-medium leading-none text-muted-foreground tabular-nums">
           {count}
         </span>
       )}
@@ -1080,7 +1077,7 @@ function CollectionScopedPropertyRow({
       </span>
       <div
         className="flex items-center gap-1.5 -mx-1.5 rounded-md px-1.5 py-0.5 transition-colors
-                   hover:bg-foreground/[0.06] dark:hover:bg-foreground/10"
+                   hover:bg-accent"
       >
         {property.icon ? (
           <KbPageIcon
@@ -1137,6 +1134,7 @@ function PropertyRow({
 }: PropertyRowProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
+  const pendingEditRef = useRef(false);
 
   // Sortable: ref + transforms + drag-listeners. Listeners прицепляем
   // ТОЛЬКО к grip-handle (не к <li>) — иначе клик/select на name/value
@@ -1179,15 +1177,17 @@ function PropertyRow({
         <button
           type="button"
           aria-label="Перетащить свойство"
-          className="absolute right-full top-2 mr-1 size-5
-                     flex items-center justify-center text-muted-foreground/40
+          // Как ручка блока в тексте (DS «Ручка блока»): 20px, радиус 4,
+          // значок 16 серый, при наведении — accent и foreground.
+          className="absolute right-full top-2 mr-1 size-5 rounded-sm
+                     flex items-center justify-center text-muted-foreground
                      cursor-grab active:cursor-grabbing
                      opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100
-                     hover:text-foreground transition-opacity"
+                     hover:bg-accent hover:text-foreground transition-[opacity,background-color,color]"
           {...attributes}
           {...listeners}
         >
-          <GripVertical className="size-3.5" />
+          <GripVertical className="size-4" />
         </button>
       )}
       {/* Label area: icon + name. Hover-bg ТОЛЬКО здесь (Notion-style —
@@ -1221,28 +1221,38 @@ function PropertyRow({
             <DropdownMenuTrigger asChild>
               <span className="pointer-events-none absolute left-0 top-1/2 size-px" aria-hidden />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="min-w-[180px]">
+            <DropdownMenuContent
+              align="start"
+              className="w-56"
+              // Окно редактирования открываем, когда меню уже закрылось:
+              // открытое раньше, оно ловило уход фокуса из снимаемого меню
+              // как «щелчок мимо» и закрывалось через долю секунды.
+              onCloseAutoFocus={(event) => {
+                if (!pendingEditRef.current) return;
+                pendingEditRef.current = false;
+                event.preventDefault();
+                setEditorOpen(true);
+              }}
+            >
               <DropdownMenuItem
-                onSelect={(e) => {
-                  e.preventDefault();
-                  setMenuOpen(false);
-                  setEditorOpen(true);
+                className="gap-2"
+                onSelect={() => {
+                  pendingEditRef.current = true;
                 }}
               >
-                <Pencil className="size-3.5 text-muted-foreground" />
+                <Pencil className="size-4 shrink-0" />
                 Редактировать
-                <ChevronRight className="ml-auto size-3.5 text-muted-foreground/60" />
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={onDuplicate}>
-                <KB_PROPERTY_UI_ICONS.duplicate className="size-3.5 text-muted-foreground" />
+              <DropdownMenuItem className="gap-2" onSelect={onDuplicate}>
+                <KB_PROPERTY_UI_ICONS.duplicate className="size-4 shrink-0" />
                 Дублировать
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                className="text-destructive focus:text-destructive"
+                className="gap-2 text-destructive focus:text-destructive"
                 onSelect={onRemove}
               >
-                <KB_PROPERTY_UI_ICONS.delete className="size-3.5" />
+                <KB_PROPERTY_UI_ICONS.delete className="size-4 shrink-0" />
                 Удалить
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -1316,7 +1326,7 @@ function PropertyLabelTrigger({
   const row = (
     <div
       className="flex items-center gap-2 -ml-1.5 rounded-md px-1.5 py-1
-                 transition-colors hover:bg-foreground/[0.06] dark:hover:bg-foreground/10"
+                 transition-colors hover:bg-accent"
     >
       <PropertyIconButton
         property={property}
@@ -1368,8 +1378,8 @@ function PropertyRowDragPreview({ property }: { property: KbProperty }) {
         "px-2",
       )}
     >
-      <span className="size-5 -ml-1 shrink-0 flex items-center justify-center text-muted-foreground/40">
-        <GripVertical className="size-3.5" />
+      <span className="size-5 -ml-1 shrink-0 flex items-center justify-center text-muted-foreground">
+        <GripVertical className="size-4" />
       </span>
       <div className="flex items-center gap-1.5 px-1 -mx-1">
         {property.icon ? (

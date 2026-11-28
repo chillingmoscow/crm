@@ -12,6 +12,7 @@ import {
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { anotherDialogOpen } from "@/lib/dom/open-dialog";
+import { openCommandPalette } from "@/components/shared/command-palette";
 import { Loader2, Search, Sparkles, ArrowLeft } from "lucide-react";
 
 import { Command as CommandPrimitive } from "cmdk";
@@ -23,6 +24,8 @@ import {
   CommandItem,
 } from "@/components/ui/command";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { EmptyIllustration } from "@/components/ui/empty-state";
+import { Skeleton } from "@/components/ui/skeleton";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 import { searchKbPages } from "@/lib/knowledge/search";
 import { askKbAi, type KbAiSource } from "@/lib/knowledge/ai-rag";
@@ -40,6 +43,12 @@ type SearchCtx = {
 };
 
 const KbSearchContext = createContext<SearchCtx | null>(null);
+
+/** То же, но без ошибки вне провайдера — для общих компонентов (кнопка
+ *  поиска в верхней панели), которые живут и вне базы знаний. */
+export function useKbSearchOptional(): SearchCtx | null {
+  return useContext(KbSearchContext);
+}
 
 export function useKbSearch(): SearchCtx {
   const ctx = useContext(KbSearchContext);
@@ -88,7 +97,10 @@ export function KbSearchProvider({ children, aiAskEnabled = false }: KbSearchPro
       // e.code — та же клавиша в русской раскладке (там e.key — «л»).
       if ((e.metaKey || e.ctrlKey) && (e.key.toLowerCase() === "k" || e.code === "KeyK")) {
         // Поверх другого окна (палитра из кнопки поиска, панель) не
-        // открываемся; своё окно ⌘K закрывает.
+        // открываемся; своё окно ⌘K закрывает. Если палитра только что
+        // закрылась этим же нажатием (она слушает раньше и уже вызвала
+        // preventDefault), поиск базы не открываем.
+        if (e.defaultPrevented) return;
         if (anotherDialogOpen("data-kb-search")) return;
         e.preventDefault();
         setOpen((prev) => !prev);
@@ -132,6 +144,7 @@ function KbSearchDialog({ open, onOpenChange, aiAskEnabled }: KbSearchDialogProp
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<KbSearchHit[]>([]);
   const [loading, setLoading] = useState(false);
+  const [searchFailed, setSearchFailed] = useState(false);
   // AI-mode: когда юзер кликнул «Спросить ИИ», прячем результаты
   // search'а и показываем answer-panel. Reset на новом query/close.
   const [ai, setAi] = useState<KbAiState | null>(null);
@@ -146,6 +159,7 @@ function KbSearchDialog({ open, onOpenChange, aiAskEnabled }: KbSearchDialogProp
       setHits([]);
       setLoading(false);
       setAi(null);
+      setSearchFailed(false);
       if (debounceRef.current) clearTimeout(debounceRef.current);
     }
   }, [open]);
@@ -163,6 +177,7 @@ function KbSearchDialog({ open, onOpenChange, aiAskEnabled }: KbSearchDialogProp
     if (query.trim().length === 0) {
       setHits([]);
       setLoading(false);
+      setSearchFailed(false);
       return;
     }
 
@@ -175,8 +190,10 @@ function KbSearchDialog({ open, onOpenChange, aiAskEnabled }: KbSearchDialogProp
       setLoading(false);
       if (error) {
         setHits([]);
+        setSearchFailed(true);
         return;
       }
+      setSearchFailed(false);
       setHits(rows);
     }, DEBOUNCE_MS);
 
@@ -216,17 +233,12 @@ function KbSearchDialog({ open, onOpenChange, aiAskEnabled }: KbSearchDialogProp
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* Дизайн по sheerly.pen → WFrIM:
-          - 720px wide, rounded-[14px]
-          - Search bar с padding 18/20, border-bottom, ⌘K kbd справа
-          - AI Quick — постоянный голубой баннер под search-bar'ом
-            (node NnFB2), активен когда ИИ включён
-          - Result rows с padding 10/20, hover/active fill-accent
-          - Footer с подсказками (border-top, fill-accent) */}
+      {/* Свой вид окна поиска (DS это разрешает), токены — из шкалы: ширина
+          720, радиус 12, shadow-lg, строки 14/12, «Спросить ИИ» — brand/10. */}
       <DialogContent
         data-kb-search=""
-        className="max-w-[720px] p-0 gap-0 rounded-[14px] sm:rounded-[14px] overflow-hidden shadow-xl
-                   [&>button:last-child]:hidden top-[20%] translate-y-0"
+        hideClose
+        className="top-[20%] max-w-[720px] translate-y-0 gap-0 overflow-hidden rounded-xl p-0 shadow-lg sm:rounded-xl"
       >
         {/* Radix requires a DialogTitle for a11y; hide it visually. */}
         <DialogTitle className="sr-only">Поиск по базе знаний</DialogTitle>
@@ -234,12 +246,9 @@ function KbSearchDialog({ open, onOpenChange, aiAskEnabled }: KbSearchDialogProp
           shouldFilter={false}
           className="bg-background [&_[cmdk-item]]:rounded-none"
         >
-          {/* Search bar — дизайн sheerly.pen → WFrIM · node Haeij:
-              одна иконка-лупа, крупный инпут 15px, ⌘K kbd справа,
-              padding 18/20, один border-bottom. Используем сырой
-              cmdk Input (не shadcn CommandInput — тот инжектит
-              собственную иконку + обёртку → было две лупы). */}
-          <div className="flex items-center gap-3 border-b px-5 py-[18px]">
+          {/* Строка поиска: лупа, поле 16px, ⌘K справа. Сырой cmdk Input —
+              shadcn CommandInput добавляет свою лупу и обёртку. */}
+          <div className="flex items-center gap-3 border-b px-5 py-4">
             <Search className="size-[18px] shrink-0 text-muted-foreground" />
             <CommandPrimitive.Input
               placeholder="Поиск по базе знаний…"
@@ -261,31 +270,27 @@ function KbSearchDialog({ open, onOpenChange, aiAskEnabled }: KbSearchDialogProp
                   void onAskAi();
                 }
               }}
-              className="h-7 flex-1 bg-transparent text-[15px] text-foreground outline-none placeholder:text-muted-foreground"
+              className="h-7 flex-1 bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground"
             />
-            <kbd className="inline-flex items-center rounded-[5px] border bg-background px-[7px] py-[3px] text-[11px] font-medium tracking-[0.3px] text-muted-foreground">
+            <kbd className="hide-on-coarse-pointer inline-flex items-center rounded-sm border bg-muted px-1.5 py-px font-mono text-xs font-semibold text-muted-foreground">
               ⌘K
             </kbd>
           </div>
 
-          {/* AI quick-row — постоянный баннер сразу под search-bar'ом
-              (sheerly.pen → WFrIM · node NnFB2): голубой фон, синяя
-              sparkles-иконка, ⏎ kbd справа. Виден всегда при включённом
-              ИИ; прячется в AI-mode (там answer-panel). Клик с запросом
-              < 4 символов — no-op (см. onAskAi). */}
+          {/* «Спросить ИИ» — строка под поиском в brand/10, ⏎ справа. Видна
+              при включённом ИИ, прячется в режиме ответа. Запрос короче
+              4 символов кнопка не отправляет (см. onAskAi). */}
           {aiAskEnabled && !ai && (
             <button
               type="button"
               onClick={() => void onAskAi()}
-              className="flex w-full items-center gap-3 border-b bg-blue-50 px-5 py-[14px] text-left
-                         transition-colors hover:bg-blue-100 focus-visible:outline-none
-                         focus-visible:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-950/60"
+              className="flex w-full items-center gap-3 border-b bg-brand/10 px-5 py-3 text-left transition-colors hover:bg-brand/15 focus-visible:bg-brand/15 focus-visible:outline-none"
             >
-              <Sparkles className="size-[18px] shrink-0 text-blue-700 dark:text-blue-400" />
-              <span className="flex-1 min-w-0 truncate text-sm font-medium text-blue-900 dark:text-blue-200">
-                Спросить ИИ о базе знаний — задайте вопрос своими словами
+              <Sparkles className="size-[18px] shrink-0 text-brand" />
+              <span className="min-w-0 flex-1 truncate text-sm font-medium text-brand">
+                Спросить ИИ о базе знаний: задайте вопрос своими словами
               </span>
-              <kbd className="inline-flex items-center rounded-[5px] border bg-background px-[7px] py-[3px] text-[11px] font-medium text-muted-foreground">
+              <kbd className="hide-on-coarse-pointer inline-flex items-center rounded-sm border bg-background px-1.5 py-px font-mono text-xs font-semibold text-muted-foreground">
                 ⏎
               </kbd>
             </button>
@@ -293,17 +298,9 @@ function KbSearchDialog({ open, onOpenChange, aiAskEnabled }: KbSearchDialogProp
 
           <CommandList className="max-h-[400px] overflow-y-auto">
             {query.trim().length === 0 && !loading && (
-              <>
-                {/* «Недавние» — sticky-style section header */}
-                <div className="px-5 pt-[14px] pb-2 text-[11px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
-                  Недавние
-                </div>
-                <div className="px-2 pb-1 text-sm text-muted-foreground italic">
-                  <div className="px-3 py-3 text-center">
-                    Начните печатать, чтобы искать
-                  </div>
-                </div>
-              </>
+              <p className="px-5 py-6 text-center text-sm text-muted-foreground">
+                Начните печатать, чтобы искать по названиям и тексту страниц
+              </p>
             )}
 
             {/* AI answer panel */}
@@ -312,9 +309,9 @@ function KbSearchDialog({ open, onOpenChange, aiAskEnabled }: KbSearchDialogProp
                 <button
                   type="button"
                   onClick={() => setAi(null)}
-                  className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground mb-2"
+                  className="mb-2 inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
                 >
-                  <ArrowLeft className="size-3" /> Вернуться к поиску
+                  <ArrowLeft className="size-4" /> Вернуться к поиску
                 </button>
                 {ai.loading && (
                   <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
@@ -334,16 +331,14 @@ function KbSearchDialog({ open, onOpenChange, aiAskEnabled }: KbSearchDialogProp
                     </div>
                     {ai.sources.length > 0 && (
                       <div className="flex flex-col gap-1">
-                        <div className="text-[11px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
-                          Источники
-                        </div>
+                        <div className="text-xs font-medium text-muted-foreground">Источники</div>
                         <ul className="flex flex-col gap-0.5">
                           {ai.sources.map((src) => (
                             <li key={src.page_id}>
                               <button
                                 type="button"
                                 onClick={() => onSelect(src.page_slug)}
-                                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+                                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent"
                               >
                                 <KbPageIcon
                                   icon={src.page_icon}
@@ -353,7 +348,7 @@ function KbSearchDialog({ open, onOpenChange, aiAskEnabled }: KbSearchDialogProp
                                 <span className="flex-1 truncate text-foreground">
                                   {src.page_title || "Без названия"}
                                 </span>
-                                <span className="text-[10px] text-muted-foreground tabular-nums">
+                                <span className="text-xs tabular-nums text-muted-foreground">
                                   {Math.round(src.similarity * 100)}%
                                 </span>
                               </button>
@@ -367,16 +362,23 @@ function KbSearchDialog({ open, onOpenChange, aiAskEnabled }: KbSearchDialogProp
               </div>
             )}
 
-            {loading && !ai && (
-              <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" />
-                Ищем…
-              </div>
+            {loading && !ai && <SearchSkeleton />}
+
+            {!loading && !ai && searchFailed && query.trim().length > 0 && (
+              <p className="px-5 py-8 text-center text-sm text-destructive">
+                Не удалось выполнить поиск. Попробуйте ещё раз
+              </p>
             )}
 
-            {!loading && !ai && query.trim().length > 0 && hits.length === 0 && (
-              <CommandEmpty className="py-8 text-center text-sm text-muted-foreground">
-                Ничего не найдено
+            {!loading && !ai && !searchFailed && query.trim().length > 0 && hits.length === 0 && (
+              <CommandEmpty className="flex flex-col items-center gap-3 px-6 py-8 text-center">
+                <EmptyIllustration kind="search" className="h-[72px] w-[90px]" />
+                <span className="text-sm font-medium">Ничего не найдено</span>
+                <span className="text-[13px] text-muted-foreground">
+                  {aiAskEnabled
+                    ? "Попробуйте другое слово или задайте вопрос ИИ"
+                    : "Попробуйте другое слово"}
+                </span>
               </CommandEmpty>
             )}
 
@@ -409,23 +411,36 @@ function KbSearchDialog({ open, onOpenChange, aiAskEnabled }: KbSearchDialogProp
             )}
           </CommandList>
 
-          {/* Footer hints */}
-          <div
-            aria-hidden="true"
-            className="flex items-center justify-end gap-[18px] border-t bg-accent px-5 py-3 text-[11px] font-medium tracking-[0.2px] text-muted-foreground"
-          >
-            <span className="inline-flex items-center gap-1.5">
-              <kbd className="inline-flex items-center rounded border bg-background px-1 py-0.5 text-[10px]">↑↓</kbd>
-              навигация
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <kbd className="inline-flex items-center rounded border bg-background px-1 py-0.5 text-[10px]">⏎</kbd>
-              открыть
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <kbd className="inline-flex items-center rounded border bg-background px-1 py-0.5 text-[10px]">Esc</kbd>
-              закрыть
-            </span>
+          {/* Footer: переход в общий поиск + подсказки клавиш. Поиск в
+              верхней панели в базе ищет по страницам; всё остальное
+              приложение — отсюда, одной строкой. */}
+          <div className="flex items-center gap-4 border-t bg-accent px-5 py-2 text-xs font-medium text-muted-foreground">
+            <button
+              type="button"
+              onClick={() => {
+                onOpenChange(false);
+                requestAnimationFrame(() => openCommandPalette());
+              }}
+              className="-ml-2 inline-flex h-8 items-center gap-2 rounded-md px-2 text-[13px] transition-colors hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
+            >
+              <Search className="size-4" />
+              Искать во всём приложении
+            </button>
+            <div className="flex-1" />
+            <div aria-hidden="true" className="flex items-center gap-4">
+              <span className="inline-flex items-center gap-1.5">
+                <kbd className="inline-flex items-center rounded-sm border bg-background px-1 py-0.5 text-xs">↑↓</kbd>
+                навигация
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <kbd className="inline-flex items-center rounded-sm border bg-background px-1 py-0.5 text-xs">⏎</kbd>
+                открыть
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <kbd className="inline-flex items-center rounded-sm border bg-background px-1 py-0.5 text-xs">Esc</kbd>
+                закрыть
+              </span>
+            </div>
           </div>
         </Command>
       </DialogContent>
@@ -455,7 +470,7 @@ function SnippetMarks({ raw }: { raw: string }) {
     if (!part) return;
     out.push(
       inMark ? (
-        <mark key={i} className="rounded-sm bg-yellow-200/60 px-0.5 text-foreground dark:bg-yellow-500/30">
+        <mark key={i} className="rounded-sm bg-brand/15 px-0.5 text-foreground">
           {part}
         </mark>
       ) : (
@@ -466,25 +481,19 @@ function SnippetMarks({ raw }: { raw: string }) {
   return <>{out}</>;
 }
 
-// ─── Trigger button (used in the tree header) ──────────────────────
-
-import { IconTooltip } from "@/components/ui/icon-tooltip";
-
-export function KbSearchTrigger() {
-  const { open } = useKbSearch();
+/** Заготовка результатов, пока идёт поиск (как в общей палитре). */
+function SearchSkeleton() {
   return (
-    <IconTooltip label="Поиск (⌘K)">
-      <button
-        type="button"
-        onClick={open}
-        aria-label="Поиск (Cmd+K)"
-        className="inline-flex items-center justify-center size-6 rounded-md
-                   text-muted-foreground hover:bg-accent hover:text-foreground
-                   transition-colors
-                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <Search className="size-3.5" />
-      </button>
-    </IconTooltip>
+    <div role="status" aria-label="Ищем" aria-busy className="space-y-1 px-5 py-2">
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="flex items-center gap-3 py-1.5">
+          <Skeleton className="size-4 rounded" />
+          <div className="flex-1 space-y-1.5">
+            <Skeleton className="h-3.5" style={{ width: `${56 - i * 12}%` }} />
+            <Skeleton className="h-3 w-1/3" />
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }

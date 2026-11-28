@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Link2, MoreHorizontal, Pencil, SmilePlus, Trash2 } from "lucide-react";
+import { Link2, MessageSquareOff, MoreHorizontal, Pencil, SmilePlus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
@@ -28,8 +28,7 @@ import {
 import { CommentBodyRenderer, extractPlainText } from "./comment-body-renderer";
 import { PageCommentComposer } from "./page-comment-composer";
 import { buildCommentLink } from "./page-comment-copy-link";
-import { personInitials } from "@/lib/format/initials";
-import { avatarImageUrl } from "@/lib/people/avatar-thumb";
+import { PersonAvatar } from "@/components/people/person-avatar";
 
 interface PageCommentUser {
   id: string;
@@ -103,9 +102,12 @@ export function PageCommentItem({
 
   if (comment.deletedAt) {
     return (
-      <div id={`comment-${comment.id}`} className="flex items-start gap-2">
-        <span className="size-7 rounded-full bg-muted shrink-0" />
-        <div className="flex-1 min-w-0 text-sm italic text-muted-foreground py-1">
+      <div id={`comment-${comment.id}`} className="flex items-center gap-2">
+        {/* Вместо пустого кружка — значок в круге размером с аватар. */}
+        <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+          <MessageSquareOff className="size-3.5" />
+        </span>
+        <div className="flex-1 min-w-0 text-[13px] text-muted-foreground">
           Комментарий удалён
         </div>
       </div>
@@ -132,22 +134,10 @@ export function PageCommentItem({
 
   const authorName = author?.fullName ?? "Удалённый пользователь";
   const authorAvatar = author?.avatarUrl ?? null;
-  const initials = personInitials(authorName);
 
   return (
     <div id={`comment-${comment.id}`} className="group flex items-start gap-2">
-      {authorAvatar ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={avatarImageUrl(authorAvatar, 96)}
-          alt=""
-          className="size-7 rounded-full object-cover bg-muted shrink-0"
-        />
-      ) : (
-        <span className="size-7 rounded-full bg-muted text-muted-foreground inline-flex items-center justify-center text-xs font-semibold shrink-0">
-          {initials}
-        </span>
-      )}
+      <PersonAvatar src={authorAvatar} name={authorName} size="md" />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-0.5">
           <span className="text-sm font-semibold text-foreground truncate">
@@ -335,7 +325,7 @@ function ReactionRow({
             disabled={!canReact}
             onClick={() => onToggle(emoji, !isMine)}
             className={cn(
-              "inline-flex items-center gap-1 h-6 px-1.5 rounded-md border text-[12px] transition-colors",
+              "inline-flex items-center gap-1 h-6 px-1.5 rounded-md border text-xs transition-colors",
               isMine
                 ? "bg-brand/10 border-brand/40 text-brand hover:bg-brand/15"
                 : "bg-muted/50 border-border hover:bg-accent",

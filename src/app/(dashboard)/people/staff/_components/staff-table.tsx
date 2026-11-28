@@ -620,7 +620,7 @@ export function StaffTable({
             options={[
               { value: "", label: "Все сотрудники" },
               { value: "staff", label: "Штатные" },
-              { value: "casual", label: "Разовые" },
+              { value: "casual", label: "Подменные" },
               ...(officialUserIds.length > 0
                 ? [{ value: "official", label: "Официально трудоустроены" }]
                 : []),

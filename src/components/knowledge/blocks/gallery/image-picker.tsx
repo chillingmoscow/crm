@@ -135,7 +135,7 @@ export function GalleryImagePicker({
       ) : (
         <div className="kb-file-panel-body">
           <div className="kb-gallery-picker-url">
-            <LinkIcon className="size-4 text-muted-foreground" strokeWidth={1.75} />
+            <LinkIcon className="size-4 text-muted-foreground" />
             <Input
               type="url"
               value={urlValue}

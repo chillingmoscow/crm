@@ -83,7 +83,7 @@ export function CollectionFiltersEditor({
                 fields={fields}
                 value={field.id}
                 placeholder="Выбрать свойство"
-                searchPlaceholder="Найти свойство..."
+                searchPlaceholder="Найти свойство…"
                 onChange={(fieldId) => {
                   const nextField = fields.find((item) => item.id === fieldId);
                   if (!nextField) return;
@@ -145,7 +145,7 @@ export function CollectionFiltersEditor({
         fields={fields}
         value=""
         placeholder="Добавить фильтр"
-        searchPlaceholder="Найти свойство..."
+        searchPlaceholder="Найти свойство…"
         onChange={addFilter}
       />
     </div>

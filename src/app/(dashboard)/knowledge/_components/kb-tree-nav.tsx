@@ -4,18 +4,21 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type Dispatch,
-  type ReactNode,
   type SetStateAction,
 } from "react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter } from "next/navigation";
 import {
+  BookCheck,
   ChevronRight,
-  LayoutDashboard,
+  Home,
+  LayoutGrid,
   Plus,
   Trash2,
+  type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -32,14 +35,17 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 
-import { KB_COMMAND_EVENT, type KbCommand } from "@/lib/kb-hotkeys";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
+import { ExpandPanel } from "@/components/shared/overview-toggle";
+import { useActiveNavGlide } from "@/components/shared/nav-glide";
 import { createKbPage, moveKbPageInTree } from "@/lib/knowledge/pages";
-import { KbSearchTrigger } from "@/app/(dashboard)/knowledge/_components/kb-search-dialog";
-import { KbImportDialog } from "@/app/(dashboard)/knowledge/_components/kb-import-dialog";
-import { KbTemplatePicker } from "@/app/(dashboard)/knowledge/_components/kb-template-picker";
+import {
+  kbDropZoneDisabled,
+  kbTreeServiceItems,
+  type KbTreeServiceItem,
+} from "@/lib/knowledge/shell";
+import { KbTreeCreateMenu } from "@/app/(dashboard)/knowledge/_components/kb-tree-create-menu";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 import { KbTreeNodeMenu } from "@/app/(dashboard)/knowledge/_components/kb-tree-node-menu";
 import { useKbTreeOverride } from "@/app/(dashboard)/knowledge/_components/kb-tree-overrides-store";
@@ -47,11 +53,6 @@ import { useKbPageStateOverride } from "@/app/(dashboard)/knowledge/_components/
 import type { KbFavoritePage } from "@/lib/knowledge/favorites";
 import type { KbTreeNode } from "@/types/knowledge";
 
-// Общий для всех инстансов KbTreeHeader (desktop + mobile drawer
-// монтируются одновременно) флаг «создание страницы уже идёт» —
-// защищает от двойного создания при мультиинстансе и быстром
-// повторном нажатии Mod+Shift+P.
-let kbCreatePageInFlight = false;
 
 interface KbTreeNavProps {
   nodes: KbTreeNode[];
@@ -66,13 +67,13 @@ interface KbTreeNavProps {
   canDelete?: boolean;
   /** `kb.create_pages` — gates node-level duplicate action. */
   canDuplicate?: boolean;
-  /** `org.view_audit` permission. Показывает «Журнал» link рядом с
-   *  «Корзина» внизу дерева. Сама страница /knowledge/audit re-check'ает. */
-  canViewAudit?: boolean;
-  /** `kb.view_analytics` permission (миграция 077). Показывает
-   *  «Аналитика» link рядом с «Журнал». Страница /knowledge/analytics
-   *  re-check'ает. */
-  canViewAnalytics?: boolean;
+  /** Видит ли пользователь «Обзор»: `kb.view_analytics`,
+   *  `kb.manage_required_reading` или `org.view_audit` (страница
+   *  перепроверяет сама). */
+  canViewOverview?: boolean;
+  /** Обязательное чтение текущего пользователя: всего страниц и
+   *  непрочитанных — для пункта «К прочтению» и его счётчика. */
+  readingSummary?: { total: number; unread: number };
   /** `kb.import_pages` (миграция 069). Показывает Upload-кнопку рядом
    *  с «+ Новая страница». Server-action всё равно проверяет — это
    *  UX-слой. */
@@ -136,8 +137,8 @@ export function KbTreeNav({
   canSeeTrash = false,
   canDelete = false,
   canDuplicate = false,
-  canViewAudit = false,
-  canViewAnalytics = false,
+  canViewOverview = false,
+  readingSummary = { total: 0, unread: 0 },
   canImport = false,
   canCreate = false,
   canManageTemplates = false,
@@ -145,7 +146,16 @@ export function KbTreeNav({
   const params = useParams<{ slug?: string }>();
   const activeSlug = params?.slug;
   const pathname = usePathname();
-  const canViewDashboard = canViewAnalytics || canViewAudit;
+  const serviceItems = kbTreeServiceItems({
+    canViewOverview,
+    canSeeTrash,
+    requiredTotal: readingSummary.total,
+    requiredUnread: readingSummary.unread,
+  });
+  // Подсветка активного пункта переезжает, как в меню приложения
+  // (docs/motion.md, «Активный пункт меню»).
+  const navRef = useRef<HTMLDivElement>(null);
+  useActiveNavGlide(navRef, pathname, true, '[data-kb-active="true"]');
 
   // Local mirror of `nodes` для оптимистичного reorder. При успехе
   // server-data догонит. При ошибке — откатываем к props.nodes.
@@ -353,12 +363,32 @@ export function KbTreeNav({
         setOverTarget(null);
       }}
     >
-      <div className="flex flex-col h-full">
-        <div className="flex flex-col gap-2 p-3 pb-2">
+      <div className="flex h-full flex-col px-3.5 pb-3">
+        {/* Шапка колонки — на высоте верхней панели (68px). */}
+        <div data-kb-tree-header className="flex h-[68px] shrink-0 items-center gap-2 pl-3">
+          <span className="flex-1 truncate text-base font-semibold">База знаний</span>
+          <KbTreeCreateMenu
+            canCreate={canCreate}
+            canImport={canImport}
+            canManageTemplates={canManageTemplates}
+          />
+        </div>
+        <div
+          ref={navRef}
+          className="relative -mx-3.5 flex-1 overflow-y-auto px-3.5"
+        >
+          <nav aria-label="Разделы базы знаний" className="flex flex-col gap-1">
+            {serviceItems.top.map((item) => (
+              <KbTreeServiceLink
+                key={item.key}
+                item={item}
+                active={isServiceItemActive(item, pathname)}
+              />
+            ))}
+          </nav>
           {localFavorites.length > 0 && (
             <KbFavoritesSection
               favorites={localFavorites}
-              activeSlug={activeSlug}
               descendantCounts={descendantCounts}
               onFavoriteChange={handleFavoriteChange}
               canCreate={canCreate}
@@ -366,13 +396,7 @@ export function KbTreeNav({
               canDelete={canDelete}
             />
           )}
-          <KbTreeHeader
-            canImport={canImport}
-            canCreate={canCreate}
-            canManageTemplates={canManageTemplates}
-          />
-        </div>
-        <div className="flex-1 overflow-y-auto px-3">
+          <div className={TREE_CAPTION}>Страницы</div>
           {localNodes.length === 0 ? (
             <KbTreeEmpty canCreate={canCreate} />
           ) : (
@@ -410,27 +434,15 @@ export function KbTreeNav({
           )}
         </div>
 
-        {(canViewDashboard || canSeeTrash) && (
-          <div className="mt-auto border-t border-sidebar-border px-2 py-3 flex flex-col gap-0.5">
-            <span className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground/70">
-              Инструменты менеджера
-            </span>
-            {canViewDashboard && (
-              <KbToolLink
-                href="/knowledge/dashboard"
-                active={pathname.startsWith("/knowledge/dashboard")}
-                icon={<LayoutDashboard className="size-4 shrink-0" />}
-                label="Дашборд"
+        {serviceItems.bottom.length > 0 && (
+          <div className="mt-2 flex flex-col gap-1 border-t border-sidebar-border pt-2">
+            {serviceItems.bottom.map((item) => (
+              <KbTreeServiceLink
+                key={item.key}
+                item={item}
+                active={isServiceItemActive(item, pathname)}
               />
-            )}
-            {canSeeTrash && (
-              <KbToolLink
-                href="/knowledge/trash"
-                active={pathname === "/knowledge/trash"}
-                icon={<Trash2 className="size-4 shrink-0" />}
-                label="Корзина"
-              />
-            )}
+            ))}
           </div>
         )}
       </div>
@@ -439,14 +451,13 @@ export function KbTreeNav({
       <DragOverlay dropAnimation={null}>
         {draggedNode ? (
           <div
-            className="rounded-md bg-sidebar shadow-md border border-sidebar-border
-                       px-2.5 py-1.5 text-[13px] font-medium text-sidebar-foreground
-                       flex items-center gap-2 max-w-[260px]"
+            className="flex min-h-9 max-w-[260px] items-center gap-2.5 rounded-lg border border-sidebar-border
+                       bg-sidebar px-3 text-[13px] font-medium text-sidebar-foreground shadow-md"
           >
             <KbPageIcon
               icon={draggedNode.icon}
               color={draggedNode.icon_color}
-              size={14}
+              size={16}
             />
             <span className="truncate">
               {draggedNode.title || "Без названия"}
@@ -475,14 +486,14 @@ function KbRootDropZone({
     <li ref={setNodeRef} className="list-none" aria-label="Перенести в root">
       <div
         className={cn(
-          "h-10 mx-2 mt-2 rounded-md border-2 border-dashed transition-colors",
+          "h-10 mt-2 rounded-lg border-2 border-dashed transition-colors",
           active
             ? "border-brand bg-brand/10"
             : "border-transparent hover:border-sidebar-border",
         )}
       >
         {active && (
-          <div className="h-full flex items-center justify-center text-[11px] font-medium text-brand">
+          <div className="h-full flex items-center justify-center text-xs font-medium text-brand">
             Перенести на верхний уровень
           </div>
         )}
@@ -493,7 +504,6 @@ function KbRootDropZone({
 
 function KbFavoritesSection({
   favorites,
-  activeSlug,
   descendantCounts,
   onFavoriteChange,
   canCreate,
@@ -501,7 +511,6 @@ function KbFavoritesSection({
   canDelete,
 }: {
   favorites: KbFavoritePage[];
-  activeSlug?: string;
   descendantCounts: Map<string, number>;
   onFavoriteChange: (page: KbFavoritePage, favorited: boolean) => void;
   canCreate: boolean;
@@ -521,30 +530,25 @@ function KbFavoritesSection({
 
   return (
     <div className="flex flex-col gap-0.5">
-      <div className="flex items-center gap-1.5 px-2 py-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70">
-        Избранное
-      </div>
+      <div className={TREE_CAPTION}>Избранное</div>
+      {/* Избранное — ярлыки: открытая страница подсвечивается одна, в
+          «Страницах», а не дважды (замечание владельца 28.11.2026). */}
       {favorites.map((p) => {
-        const isActive = activeSlug === p.slug;
         return (
           <div
             key={p.id}
-            className={cn(
-              "group flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] font-medium",
-              "text-sidebar-foreground hover:bg-sidebar-accent",
-              isActive && "bg-sidebar-accent text-sidebar-accent-foreground",
-            )}
+            className={cn(TREE_ROW, "font-medium", TREE_ROW_IDLE)}
           >
             <Link
               href={`/knowledge/${p.slug}`}
-              className="flex-1 truncate inline-flex items-center gap-2 min-w-0"
+              className={TREE_ROW_LINK}
               data-tip={p.title}
+              data-tip-overflow
             >
-              <span className="size-5 shrink-0 inline-flex items-center justify-center">
-                <KbPageIcon icon={p.icon} color={p.icon_color} size={14} />
-              </span>
+              <KbPageIcon icon={p.icon} color={p.icon_color} size={16} />
               <span className="truncate">{p.title || "Без названия"}</span>
             </Link>
+            <span className={TREE_ROW_ACTIONS}>
             <KbTreeNodeMenu
               page={p}
               childCount={descendantCounts.get(p.id) ?? 0}
@@ -555,87 +559,10 @@ function KbFavoritesSection({
               onCreateChild={() => void createChild(p)}
               onFavoriteChange={onFavoriteChange}
             />
+            </span>
           </div>
         );
       })}
-    </div>
-  );
-}
-
-function KbTreeHeader({
-  canImport = false,
-  canCreate = false,
-  canManageTemplates = false,
-}: {
-  canImport?: boolean;
-  canCreate?: boolean;
-  canManageTemplates?: boolean;
-}) {
-  const router = useRouter();
-  const [creating, setCreating] = useState(false);
-
-  const onCreateRoot = async () => {
-    setCreating(true);
-    const { slug, error } = await createKbPage({});
-    setCreating(false);
-    if (error || !slug) {
-      toast.error(error ?? "Не удалось создать страницу");
-      return;
-    }
-    router.push(`/knowledge/${slug}`);
-  };
-
-  // Хоткей создания страницы (Mod+Shift+P) — тот же путь, что кнопка
-  // «+ Новая страница». Без kb.create_pages — тихий no-op, как скрытая
-  // кнопка (Codex P2 #348), не дёргаем server action ради error-тоста.
-  useEffect(() => {
-    const onCommand = (e: Event) => {
-      const command = (e as CustomEvent<{ command: KbCommand }>).detail
-        .command;
-      if (command === "create-page") {
-        if (!canCreate) return;
-        if (kbCreatePageInFlight) return;
-        kbCreatePageInFlight = true;
-        void onCreateRoot().finally(() => {
-          kbCreatePageInFlight = false;
-        });
-      }
-    };
-    window.addEventListener(KB_COMMAND_EVENT, onCommand);
-    return () => window.removeEventListener(KB_COMMAND_EVENT, onCommand);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  return (
-    <div className="flex items-center justify-between px-2 py-2">
-      <span className="text-[11px] font-medium uppercase tracking-wider
-                       text-muted-foreground/70">
-        Страницы
-      </span>
-      <div className="flex items-center gap-0.5">
-        <KbSearchTrigger />
-        {canCreate && (
-          <KbTemplatePicker
-            parentId={null}
-            canManageTemplates={canManageTemplates}
-          />
-        )}
-        {canImport && <KbImportDialog parentId={null} />}
-        {canCreate && (
-          <IconTooltip label="Новая страница">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-6"
-              aria-label="Новая страница"
-              onClick={onCreateRoot}
-              disabled={creating}
-            >
-              <Plus className="size-3.5" />
-            </Button>
-          </IconTooltip>
-        )}
-      </div>
     </div>
   );
 }
@@ -659,6 +586,9 @@ function KbTreeEmpty({ canCreate }: { canCreate: boolean }) {
 interface KbTreeItemProps {
   node: KbTreeNode;
   depth: number;
+  /** Строка лежит внутри свёрнутой (но смонтированной) ветки — её зоны
+   *  перетаскивания выключены. */
+  insideCollapsed?: boolean;
   expanded: Set<string>;
   setExpanded: Dispatch<SetStateAction<Set<string>>>;
   activeSlug?: string;
@@ -680,6 +610,7 @@ interface KbTreeItemProps {
 function KbTreeItem({
   node,
   depth,
+  insideCollapsed = false,
   expanded,
   setExpanded,
   activeSlug,
@@ -713,6 +644,10 @@ function KbTreeItem({
   const isActive = activeSlug === node.slug;
   const isOpen = expanded.has(node.id);
   const hasChildren = node.children.length > 0;
+  const [everOpened, setEverOpened] = useState(isOpen);
+  useEffect(() => {
+    if (isOpen) setEverOpened(true);
+  }, [isOpen]);
   const [creating, setCreating] = useState(false);
   const isBlocked = blockedTargets?.has(node.id) ?? false;
   const isFavorited = favoriteIds.has(node.id);
@@ -731,17 +666,18 @@ function KbTreeItem({
 
   // 3 droppable strip'а: before/child/after. Disabled если этот item —
   // dragged-сам (или его потомок). Активны только во время drag'а.
+  const dropDisabled = kbDropZoneDisabled({ isBlocked, isDraggingAny, insideCollapsed });
   const beforeDrop = useDroppable({
     id: makeDropId(node.id, "before"),
-    disabled: isBlocked || !isDraggingAny,
+    disabled: dropDisabled,
   });
   const childDrop = useDroppable({
     id: makeDropId(node.id, "child"),
-    disabled: isBlocked || !isDraggingAny,
+    disabled: dropDisabled,
   });
   const afterDrop = useDroppable({
     id: makeDropId(node.id, "after"),
-    disabled: isBlocked || !isDraggingAny,
+    disabled: dropDisabled,
   });
 
   // Visual: какая zone сейчас hovered (для рендера insertion-line /
@@ -821,68 +757,41 @@ function KbTreeItem({
       >
         {hoveredZone === "before" && (
           <div
-            className="absolute left-0 right-2 top-1/2 -translate-y-1/2 h-[2px] bg-brand rounded"
-            style={{ marginLeft: `${depth * 14 + 10}px` }}
+            className="absolute left-3 right-2 top-1/2 -translate-y-1/2 h-[2px] bg-brand rounded"
           />
         )}
       </div>
 
-      {/* Center drop-zone: при hover подсвечиваем row → стать child'ом */}
+      {/* Center drop-zone: при hover подсвечиваем row → стать child'ом.
+          Строка — в стиле пункта меню приложения: 36px, 13px, значок 16px,
+          активная — синяя подложка (docs/design-system.md, «База знаний»). */}
       <div
         ref={childDrop.setNodeRef}
         {...dragListeners}
+        data-kb-active={isActive ? "true" : undefined}
         className={cn(
-          "group flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] font-medium cursor-grab active:cursor-grabbing",
-          "text-sidebar-foreground hover:bg-sidebar-accent",
-          isActive && "bg-sidebar-accent text-sidebar-accent-foreground",
+          TREE_ROW,
+          "cursor-grab active:cursor-grabbing",
+          depth === 0 ? "font-medium" : "font-normal",
+          isActive ? TREE_ROW_ACTIVE : TREE_ROW_IDLE,
           hoveredZone === "child" &&
             "bg-brand/15 ring-1 ring-brand/40 ring-inset",
         )}
-        style={{ paddingLeft: `${depth * 14 + 10}px` }}
       >
-        {/* Иконка/chevron — занимают одну и ту же позицию.
-            Notion-style: иконка по умолчанию, chevron на hover. */}
-        <span className="relative size-5 shrink-0 inline-flex items-center justify-center">
-          <KbPageIcon
-            icon={displayIcon}
-            color={displayIconColor}
-            size={14}
-            className={cn(
-              "transition-opacity",
-              hasChildren && "group-hover:opacity-0",
-            )}
-          />
-          {hasChildren && (
-            <button
-              type="button"
-              onClick={toggle}
-              onPointerDown={(e) => e.stopPropagation()}
-              aria-label={isOpen ? "Свернуть" : "Развернуть"}
-              className="absolute inset-0 flex items-center justify-center rounded
-                         opacity-0 group-hover:opacity-100
-                         text-muted-foreground hover:bg-sidebar-accent/60"
-            >
-              <ChevronRight
-                className={cn(
-                  "size-3.5 transition-transform",
-                  isOpen && "rotate-90",
-                )}
-              />
-            </button>
-          )}
-        </span>
-
-        {/* Title (link). Lock-icon показываем при заблокированной
-            странице — Sprint D Phase 3, чтобы admin'у было видно из
-            дерева, какие страницы «закреплены как готовые». */}
+        {/* Title (link). Заблокированность — в подсказке строки. */}
         <Link
           href={`/knowledge/${node.slug}`}
-          className="flex-1 truncate inline-flex items-center gap-1.5 min-w-0"
+          className={TREE_ROW_LINK}
           data-tip={displayIsLocked ? `${displayTitle} (заблокирована)` : displayTitle}
+          data-tip-overflow={displayIsLocked ? undefined : true}
         >
+          <KbPageIcon icon={displayIcon} color={displayIconColor} size={16} />
           <span className="truncate">{displayTitle || "Без названия"}</span>
         </Link>
 
+        {/* Действия узла занимают место только при наведении/фокусе или
+            пока открыто их меню — в покое название видно целиком. */}
+        <span className={TREE_ROW_ACTIONS}>
         {canCreate && (
           <IconTooltip label="Добавить подстраницу" side="right">
             <button
@@ -891,11 +800,11 @@ function KbTreeItem({
               onPointerDown={(e) => e.stopPropagation()}
               disabled={creating}
               aria-label="Добавить подстраницу"
-              className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 flex size-6 shrink-0 items-center
-                         justify-center rounded text-muted-foreground
-                         hover:bg-sidebar-accent/60 disabled:opacity-50"
+              className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0
+                         transition-opacity hover:bg-sidebar-accent hover:text-foreground disabled:opacity-50
+                         group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100"
             >
-              <Plus className="size-3.5" />
+              <Plus className="size-4" />
             </button>
           </IconTooltip>
         )}
@@ -910,6 +819,25 @@ function KbTreeItem({
           onCreateChild={createChild}
           onFavoriteChange={onFavoriteChange}
         />
+        </span>
+
+        {/* Шеврон справа, как у разделов меню. У страницы без подстраниц
+            места под него нет: названия начинаются слева и не сдвигаются,
+            а пустой хвост справа выглядел как непонятная зона (замечание
+            владельца 28.11.2026). Перетаскивать можно за всю строку. */}
+        {hasChildren && (
+          <button
+            type="button"
+            onClick={toggle}
+            onPointerDown={(e) => e.stopPropagation()}
+            aria-label={isOpen ? "Свернуть" : "Развернуть"}
+            aria-expanded={isOpen}
+            className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/60
+                       transition-colors hover:bg-sidebar-accent hover:text-foreground"
+          >
+            <ChevronRight className={cn("motion-chevron size-4", isOpen && "rotate-90")} />
+          </button>
+        )}
       </div>
 
       {/* Bottom-edge drop-strip — insertion-line под item'ом */}
@@ -922,19 +850,26 @@ function KbTreeItem({
       >
         {hoveredZone === "after" && (
           <div
-            className="absolute left-0 right-2 top-1/2 -translate-y-1/2 h-[2px] bg-brand rounded"
-            style={{ marginLeft: `${depth * 14 + 10}px` }}
+            className="absolute left-3 right-2 top-1/2 -translate-y-1/2 h-[2px] bg-brand rounded"
           />
         )}
       </div>
 
-      {hasChildren && isOpen && (
-        <ul className="flex flex-col gap-0.5" role="group">
+      {/* Подстраницы — под тонкой линией, как подпункты меню; раскрываются
+          плавно. Монтируем ветку только после первого раскрытия: большие
+          импортированные деревья не рендерятся целиком. */}
+      {hasChildren && everOpened && (
+        <ExpandPanel open={isOpen}>
+        <ul
+          className="ml-3 flex flex-col gap-0.5 border-l border-border/75 pl-2"
+          role="group"
+        >
           {node.children.map((child) => (
             <KbTreeItem
               key={child.id}
               node={child}
               depth={depth + 1}
+              insideCollapsed={insideCollapsed || !isOpen}
               expanded={expanded}
               setExpanded={setExpanded}
               activeSlug={activeSlug}
@@ -949,6 +884,7 @@ function KbTreeItem({
             />
           ))}
         </ul>
+        </ExpandPanel>
       )}
     </li>
   );
@@ -1109,32 +1045,76 @@ function removeNodeById(nodes: KbTreeNode[], id: string): KbTreeNode[] {
     );
 }
 
-/** Пункт секции «Инструменты менеджера» в KB-сайдбаре. Активный —
- *  по точному совпадению pathname (дизайн sheerly `TvInj`). */
-function KbToolLink({
-  href,
+/** Подпись группы дерева — как «Рабочее пространство» в меню приложения
+ *  (`.navCaption` в workspace-appearance.module.css). */
+const TREE_CAPTION =
+  "px-3 pb-2 pt-[18px] text-xs font-medium uppercase tracking-[0.6px] text-muted-foreground";
+
+/** Строка страницы: 36px, 13px, отступ слева как у пунктов меню. */
+// Рамку фокуса рисует сама строка по своему скруглению, а не ссылка
+// внутри неё (была прямоугольная системная рамка поверх подсветки).
+const TREE_ROW =
+  "group flex min-h-9 items-center gap-1 rounded-lg pl-3 pr-1 text-[13px] transition-colors has-[a:focus-visible]:ring-2 has-[a:focus-visible]:ring-ring";
+const TREE_ROW_LINK =
+  "flex min-w-0 flex-1 items-center gap-2.5 self-stretch outline-none";
+const TREE_ROW_IDLE = "text-sidebar-foreground hover:bg-sidebar-accent";
+const TREE_ROW_ACTIVE = "bg-brand/10 font-semibold text-brand";
+const TREE_ROW_ACTIONS =
+  "hidden shrink-0 items-center group-hover:flex group-focus-within:flex has-[[data-state=open]]:flex [@media(pointer:coarse)]:flex";
+
+const SERVICE_ICONS: Record<KbTreeServiceItem["key"], LucideIcon> = {
+  home: Home,
+  overview: LayoutGrid,
+  "to-read": BookCheck,
+  trash: Trash2,
+};
+
+function isServiceItemActive(item: KbTreeServiceItem, pathname: string): boolean {
+  switch (item.key) {
+    case "home":
+      return pathname === "/knowledge";
+    case "overview":
+      return pathname.startsWith("/knowledge/overview");
+    case "trash":
+      return pathname === "/knowledge/trash";
+    default:
+      return false;
+  }
+}
+
+/** Служебный пункт дерева («Главная», «Обзор», «К прочтению», «Корзина») —
+ *  ровно пункт меню приложения: 41px, 13px / 500, значок 17px серый,
+ *  активный — синяя подложка и синий жирный текст. */
+function KbTreeServiceLink({
+  item,
   active,
-  icon,
-  label,
 }: {
-  href: string;
+  item: KbTreeServiceItem;
   active: boolean;
-  icon: ReactNode;
-  label: string;
 }) {
+  const Icon = SERVICE_ICONS[item.key];
   return (
     <Link
-      href={href}
+      href={item.href}
       aria-current={active ? "page" : undefined}
+      data-kb-active={active ? "true" : undefined}
       className={cn(
-        "flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition-colors",
+        "flex min-h-[41px] items-center gap-2.5 rounded-lg px-3 text-[13px] font-medium transition-colors",
         active
-          ? "bg-sidebar-accent font-medium text-foreground"
+          ? "bg-brand/10 font-semibold text-brand"
           : "text-muted-foreground hover:bg-sidebar-accent hover:text-foreground",
       )}
     >
-      {icon}
-      {label}
+      <Icon className="size-[17px] shrink-0" />
+      <span className="flex-1 truncate">{item.label}</span>
+      {item.count !== undefined && (
+        <span
+          className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-foreground"
+          aria-label={`Не прочитано: ${item.count}`}
+        >
+          {item.count}
+        </span>
+      )}
     </Link>
   );
 }

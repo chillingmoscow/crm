@@ -23,6 +23,7 @@ import type {
 
 import { PageFrame } from "@/components/shared/page-frame";
 import { usePeopleOverview } from "@/components/people/people-overview";
+import type { PeopleOverviewData } from "@/lib/people/overview";
 import { PersonAvatar } from "@/components/people/person-avatar";
 import { StaffTable, type StaffColKey as ColKey } from "./staff-table";
 import type { CasualStaffRow } from "@/lib/payroll/casual-list";
@@ -82,7 +83,7 @@ type Props = {
   currentUserId: string;
   /** Право people.edit_staff у текущего пользователя. */
   canEditStaff: boolean;
-  /** people.invite_staff: «Пригласить» и «Разовый». */
+  /** people.invite_staff: «Пригласить» и «Подменный». */
   canInviteStaff?: boolean;
   /** payroll.view: строка разового открывает его расчёт в «Зарплате». */
   canViewPayroll?: boolean;
@@ -95,10 +96,14 @@ type Props = {
   casual: { employees: CasualStaffRow[]; roles: { id: string; name: string }[] } | null;
   /** Пользователи с открытым сегодня официальным трудоустройством; пусто без права просмотра зарплаты. */
   officialUserIds: string[];
-  /** Opened from the schedule: «Добавить → Разовый» is shown right away. */
+  /** Opened from the schedule: «Добавить → Подменный» is shown right away. */
   openAddCasual?: boolean;
   /** Выбор «Обзора» из cookie — сервер рисует его сразу в нужном состоянии. */
   initialOverviewOpen?: boolean;
+  /** «Обзор команды» текущего месяца, загруженный сервером. */
+  initialOverviewData?: PeopleOverviewData;
+  /** Сегодня в поясе заведения, «2026-11-27»: отметки медкнижки и дня рождения. */
+  today: string;
   /** Сейчас на смене (график и отметки): сотрудники Sheerly. */
   onShiftUserIds?: string[];
   /** Сейчас на смене: зарплатные карточки (разовые). */
@@ -136,12 +141,19 @@ function genderShort(g: string | null) {
  * Дата сравнивается по локальному календарному дню (без UTC-сдвига),
  * чтобы «истекает сегодня» считалось одинаково в Москве и Калининграде.
  */
+/** «2026-11-27» — календарный день устройства. */
+function localIsoDate(date: Date) {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 function medbookStatus(
   medicalBookDate: string | null,
+  /** Сегодня в поясе заведения, «2026-11-27» — с сервера, одинаково в разметке и в браузере. */
+  todayIso: string,
 ): { kind: "expired" | "soon"; label: string; title: string } | null {
   if (!medicalBookDate) return null;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const today = new Date(todayIso + "T00:00:00");
   const expiry = new Date(medicalBookDate + "T00:00:00");
   if (Number.isNaN(expiry.getTime())) return null;
   const diffDays = Math.round(
@@ -184,6 +196,7 @@ function medbookStatus(
  */
 function birthdayStatus(
   birthDate: string | null,
+  todayIso: string,
 ): { kind: "today" | "soon"; label: string; title: string } | null {
   if (!birthDate) return null;
   // birthDate в формате YYYY-MM-DD; парсим без UTC-сдвига.
@@ -193,8 +206,9 @@ function birthdayStatus(
   const day = Number(parts[2]);
   if (!month || !day) return null;
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // «Сегодня» — с сервера: иначе ночью по Москве (на сервере ещё вчера)
+  // отметки в разметке и в браузере расходились, и React перерисовывал список.
+  const today = new Date(todayIso + "T00:00:00");
   const thisYear = today.getFullYear();
 
   // Следующий ДР: в этом году или, если уже прошёл, в следующем.
@@ -307,9 +321,17 @@ export function StaffClient({
   officialUserIds,
   openAddCasual = false,
   initialOverviewOpen,
+  initialOverviewData,
+  today: serverToday,
   onShiftUserIds = [],
   onShiftEmployeeIds = [],
 }: Props) {
+  // «Сегодня» для отметок медкнижки и дня рождения: до монтирования — с
+  // сервера (разметка и первая отрисовка совпадают), потом — дата устройства
+  // на момент отрисовки, чтобы вкладка, открытая через полночь, пересчиталась.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const today = mounted ? localIsoDate(new Date()) : serverToday;
   const onShiftUsers = new Set(onShiftUserIds);
   const onShiftEmployees = new Set(onShiftEmployeeIds);
   const [staff, setStaff] = useState(initialStaff);
@@ -345,7 +367,7 @@ export function StaffClient({
     setInviteOpen(true);
   };
   // `?add=casual` (график, палитра ⌘K) открывает панель на вкладке
-  // «Разовый» — и когда страница уже открыта — и убирается из адреса,
+  // «Подменный» — и когда страница уже открыта — и убирается из адреса,
   // чтобы обновление страницы не открывало панель снова.
   useEffect(() => {
     if (!openAddCasual) return;
@@ -361,6 +383,7 @@ export function StaffClient({
     venueId,
     `${staff.length}:${fired.length}`,
     initialOverviewOpen,
+    initialOverviewData,
   );
 
   // Право, а не код должности: своя должность с people.edit_staff тоже
@@ -461,8 +484,8 @@ export function StaffClient({
           (Boolean(member.has_pending_invite) ||
             Boolean(member.needs_password_setup) ||
             !member.email_confirmed);
-        const medbook = medbookStatus(member.medical_book_date);
-        const bday = birthdayStatus(member.birth_date);
+        const medbook = medbookStatus(member.medical_book_date, today);
+        const bday = birthdayStatus(member.birth_date, today);
         const nameLabel = (
           <>
             {displayName(member)}
@@ -778,7 +801,7 @@ export function StaffClient({
                 className="inline-flex shrink-0"
                 data-tip="Выходит на смены по графику без входа в Sheerly. Отмечается в кассе своим PIN."
               >
-                <StatusBadge icon={<CalendarClock />}>Разовый</StatusBadge>
+                <StatusBadge icon={<CalendarClock />}>Подменный</StatusBadge>
               </span>
             )}
           </div>
@@ -829,7 +852,7 @@ export function StaffClient({
         return c.pin ? (
           <span className="font-mono text-sm tabular-nums">{c.pin}</span>
         ) : (
-          <span className="text-sm text-muted-foreground" data-tip="Кода кассы нет: его выдаст «Добавить → Разовый» с тем же именем или перевод в штат">
+          <span className="text-sm text-muted-foreground" data-tip="Кода кассы нет: его выдаст «Добавить → Подменный» с тем же именем или перевод в штат">
             —
           </span>
         );

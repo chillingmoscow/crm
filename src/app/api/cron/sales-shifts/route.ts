@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { NextRequest, NextResponse } from "next/server";
 import { runOneSlice, scheduleDueDays } from "@/lib/sales/sync";
+import { scheduleHistoryDay } from "@/lib/sales/history-backfill-run";
 import {
   scheduleAdditionalReports,
   processAdditionalReport,
@@ -52,6 +53,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Нет доступа" }, { status: 401 });
   try {
     const queued = await scheduleDueDays();
+    // История продаж для прогноза плана: по дню, только когда очередь пуста.
+    try {
+      await scheduleHistoryDay();
+    } catch (error) {
+      console.error("[sales-history] догрузка истории:", error instanceof Error ? error.message : error);
+    }
     let slices = 0,
       failed = 0,
       monthReports = 0,

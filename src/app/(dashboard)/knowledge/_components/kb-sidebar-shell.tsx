@@ -85,14 +85,15 @@ export function KbSidebarShell({
     };
   }, []);
 
-  // Inline visible — стандартный sticky aside. Стили совпадают с тем,
-  // что было захардкодено в knowledge/layout.tsx (когда aside рендерился
-  // прямо там).
+  // Inline visible — sticky-колонка во всю высоту экрана. Не уезжает при
+  // открытом меню: блокировка прокрутки больше не делает body
+  // scroll-контейнером (globals.css, body[data-scroll-locked]).
   if (!hidden) {
     return (
       <aside
         aria-label="Дерево страниц"
-        className="hidden md:flex sticky top-0 h-svh shrink-0
+        className="hidden md:flex sticky top-[var(--impersonation-offset,0px)]
+                   h-[calc(100svh_-_var(--impersonation-offset,0px))] shrink-0
                    flex-col border-r bg-sidebar"
       >
         <KbSidebarResizer initialWidth={sidebarInitialWidth}>
@@ -120,8 +121,8 @@ export function KbSidebarShell({
       onMouseEnter={cancelPeekClose}
       onMouseLeave={schedulePeekClose}
       className={cn(
-        "fixed top-0 z-40 h-svh shrink-0 flex flex-col",
-        "border-r bg-sidebar shadow-xl",
+        "fixed bottom-0 top-[var(--impersonation-offset,0px)] z-40 shrink-0 flex flex-col",
+        "border-r bg-sidebar shadow-lg",
         // Выезжает от основного меню вправо (docs/motion.md).
         "motion-slide-in-left",
       )}

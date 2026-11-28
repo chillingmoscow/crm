@@ -35,6 +35,8 @@ import {
   UserMinus,
   UserPlus,
   type LucideIcon,
+  BellRing,
+  CheckCheck,
 } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
@@ -113,6 +115,21 @@ function SalesPlanDetails({ details }: { details: Record<string, unknown> }) {
       {details.before != null && <>{formatAmount(details.before)} → </>}
       {details.after != null ? formatAmount(details.after) : "без плана"}
     </p>
+  );
+}
+
+/** План месяца v2: оборот и доля алкоголя, было → стало. */
+function SalesMonthPlanDetails({ details }: { details: Record<string, unknown> }) {
+  const month = String(details.month ?? "");
+  const side = (v: unknown) => (v && typeof v === "object" ? (v as { turnover?: unknown; alcohol_share?: unknown }) : {});
+  const before = side(details.before), after = side(details.after);
+  const share = (v: unknown) => (v == null ? "—" : `${Number(v).toLocaleString("ru-RU")}%`);
+  return (
+    <div className="space-y-0.5 text-xs text-muted-foreground">
+      <p>{/^\d{4}-\d{2}/.test(month) ? monthLabel(month).replace(/^./, (c) => c.toUpperCase()) : "Месяц"}</p>
+      <p>Оборот: {before.turnover != null ? <>{formatAmount(before.turnover)} → </> : null}{after.turnover != null ? formatAmount(after.turnover) : "без плана"}</p>
+      <p>Доля алкоголя: {before.alcohol_share != null ? <>{share(before.alcohol_share)} → </> : null}{share(after.alcohol_share)}</p>
+    </div>
   );
 }
 
@@ -598,6 +615,34 @@ const SPECS: Record<string, AuditEventSpec> = {
     buildHeadline: (e) => <>{e.details.after == null ? "удалил(а) план продаж" : e.details.before == null ? "задал(а) план продаж" : "изменил(а) план продаж"}</>,
     buildDetails: (e) => <SalesPlanDetails details={e.details} />,
   },
+  "sales.plan.saved": {
+    icon: Settings2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>утвердил(а) план продаж месяца</>,
+    buildDetails: (e) => <SalesMonthPlanDetails details={e.details} />,
+  },
+  "sales.price_change.created": {
+    icon: Settings2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>записал(а) изменение цен</>,
+    buildDetails: (e) => (
+      <p className="text-xs text-muted-foreground">
+        С {String(e.details.date ?? "").split("-").reverse().join(".")} · {Number(e.details.percent) > 0 ? "+" : ""}{Number(e.details.percent).toLocaleString("ru-RU")}%
+        {e.details.note ? <> · {String(e.details.note)}</> : null}
+      </p>
+    ),
+  },
+  "sales.price_change.deleted": {
+    icon: Settings2, iconClass: "text-muted-foreground bg-muted",
+    buildHeadline: () => <>удалил(а) изменение цен</>,
+    buildDetails: (e) => (
+      <p className="text-xs text-muted-foreground">
+        С {String(e.details.date ?? "").split("-").reverse().join(".")} · {Number(e.details.percent).toLocaleString("ru-RU")}%
+      </p>
+    ),
+  },
+  "sales.seasonality.changed": {
+    icon: Settings2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: (e) => <>{e.details.after == null ? "вернул(а) сезонность по умолчанию" : "изменил(а) сезонность заведения"}</>,
+  },
   "sales.plan.deleted": {
     icon: Settings2, iconClass: "text-muted-foreground bg-muted",
     buildHeadline: () => <>удалил(а) план продаж</>,
@@ -661,21 +706,21 @@ const SPECS: Record<string, AuditEventSpec> = {
   },
   "payroll.casual.fired": {
     icon:UserMinus,iconClass:"text-destructive bg-destructive/10",
-    buildHeadline:e=><>уволил(а) разового · {String(e.details.employee_name??"Сотрудник")}</>,
+    buildHeadline:e=><>уволил(а) подменного · {String(e.details.employee_name??"Сотрудник")}</>,
     buildDetails:e=><p className="text-xs text-muted-foreground">{e.details.without_chats?"Не состоял в чатах Telegram":e.details.telegram_id?`Telegram ID ${String(e.details.telegram_id)}`:"Telegram ID не указан"} · сотрудник Quick Resto {e.details.quickresto_employee_id?"удаляется":"не связан"}</p>,
   },
   "payroll.casual.telegram_id_changed": {
     icon:Pencil,iconClass:"text-brand bg-brand/10",
-    buildHeadline:e=><>исправил(а) Telegram ID при увольнении разового · {String(e.details.employee_name??"Сотрудник")}</>,
+    buildHeadline:e=><>исправил(а) Telegram ID при увольнении подменного · {String(e.details.employee_name??"Сотрудник")}</>,
     buildDetails:e=><p className="text-xs text-muted-foreground">{String(e.details.before??"—")} → {String(e.details.after??"—")} · чаты проверяются заново</p>,
   },
   "payroll.casual.chats_skipped": {
     icon:Pencil,iconClass:"text-brand bg-brand/10",
-    buildHeadline:e=><>отметил(а), что уволенный разовый не состоял в чатах · {String(e.details.employee_name??"Сотрудник")}</>,
+    buildHeadline:e=><>отметил(а), что уволенный подменный не состоял в чатах · {String(e.details.employee_name??"Сотрудник")}</>,
   },
   "payroll.employee.converted_to_staff": {
     icon:Pencil,iconClass:"text-brand bg-brand/10",
-    buildHeadline:e=><>перевёл(а) разового в штат · {String(e.details.employee_name??"Сотрудник")}</>,
+    buildHeadline:e=><>перевёл(а) подменного в штат · {String(e.details.employee_name??"Сотрудник")}</>,
     buildDetails:e=><p className="text-xs text-muted-foreground">Смены и начисления остались при сотруднике · будущих смен перенесено: {String(e.details.moved_shifts??0)}</p>,
   },
   "payroll.attendance_source.changed": {
@@ -1431,10 +1476,9 @@ const SPECS: Record<string, AuditEventSpec> = {
   },
 
   // ── kb_page ─────────────────────────────────────────────────
-  // Единственное место рендера KB-событий: отдельный /knowledge/audit
-  // убран, всё идёт через общий журнал /org/audit (фильтр раздела
-  // «База знаний»). Лента «Последние изменения» на дашборде KB
-  // использует свой KbAuditEventRow.
+  // Единственное место рендера KB-событий: общий журнал /org/audit (фильтр
+  // раздела «База знаний») и «Последние изменения» в «Обзоре» базы знаний —
+  // оба через AuditEventRow.
   "kb_page.created": {
     icon: FilePlus2,
     iconClass: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
@@ -1518,6 +1562,48 @@ const SPECS: Record<string, AuditEventSpec> = {
       <>
         снял(а) защиту от редактирования со страницы{" "}
         <KbPageTitle event={e} text={e.details.title as string} />
+      </>
+    ),
+  },
+  "kb_page.reread_requested": {
+    icon: RotateCcw,
+    iconClass: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
+    buildHeadline: (e) => (
+      <>
+        попросил(а) перечитать страницу{" "}
+        <strong className="font-medium">
+          «{(e.details.title as string) || "Без названия"}»
+        </strong>
+        {typeof e.details.notified === "number" && e.details.notified > 0
+          ? ` (${countRu(e.details.notified, "человек", "человека", "человек")})`
+          : ""}
+      </>
+    ),
+  },
+  "kb_page.reminder_sent": {
+    icon: BellRing,
+    iconClass: "bg-brand/10 text-brand",
+    buildHeadline: (e) => (
+      <>
+        напомнил(а) прочитать страницу{" "}
+        <strong className="font-medium">
+          «{(e.details.title as string) || "Без названия"}»
+        </strong>
+        {typeof e.details.notified === "number"
+          ? ` (${countRu(e.details.notified, "человек", "человека", "человек")})`
+          : ""}
+      </>
+    ),
+  },
+  "kb_page.reread_dismissed": {
+    icon: CheckCheck,
+    iconClass: "bg-muted text-muted-foreground",
+    buildHeadline: (e) => (
+      <>
+        отметил(а), что после правки перечитывать не нужно, страницу{" "}
+        <strong className="font-medium">
+          «{(e.details.title as string) || "Без названия"}»
+        </strong>
       </>
     ),
   },

@@ -105,7 +105,7 @@ export function DateValueControl({
       >
         {/* Быстрые кнопки — ровно по ширине календаря (w-0 min-w-full:
             ширину окна задаёт сетка дат, а не этот ряд). */}
-        <div className="flex w-0 min-w-full gap-1 pb-2">
+        <div className="flex w-0 min-w-full flex-wrap gap-1 pb-2">
           {QUICK.map((q) => (
             <button
               key={q.kind}

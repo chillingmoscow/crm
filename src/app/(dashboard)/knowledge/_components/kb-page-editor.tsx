@@ -494,7 +494,6 @@ export function KbPageEditor({
       </KbMentionResolutionProvider>
 
       {afterContent}
-
     </div>
   );
 }

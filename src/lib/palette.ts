@@ -165,14 +165,11 @@ export function paletteDot(c: string | null | undefined): string {
   return DOT[n];
 }
 
-/** Класс для chip'а (фон + текст одной строкой) — для select-options
- *  property-блоков, тегов и т.п. Сочетает paletteBg + paletteText.
- *  Для default/null — нейтральный muted-chip (читается как «без цвета»). */
 /** Чип варианта — тот же рецепт, что у `StatusBadge` (DS «Статусные
  *  бейджи»): `bg-{c}-500/10` и `text-{c}-700 / dark 400`, без рамки.
  *  Заливка карточек и ячеек (`paletteBg`) остаётся светлой. */
 const CHIP: Record<Exclude<PaletteColor, "default">, string> = {
-  gray:   "bg-gray-500/10 text-gray-700 dark:text-gray-300",
+  gray:   "bg-gray-500/15 text-gray-700 dark:text-gray-400",
   brown:  "bg-[#92664a]/10 text-[#6e4937] dark:text-[#d6b89e]",
   orange: "bg-orange-500/10 text-orange-700 dark:text-orange-400",
   yellow: "bg-yellow-500/10 text-yellow-700 dark:text-yellow-400",

@@ -98,7 +98,12 @@ function KbMentionList(props: SuggestionMenuProps<DefaultReactSuggestionItem>) {
       className="bn-suggestion-menu kb-mention-menu"
     >
       {rendered}
-      {items.length === 0 && loadingState !== "loading" && (
+      {/* Пока ответа нет — индикатор, как в дефолтном меню BN; «Ничего не
+          найдено» — только после ответа. */}
+      {items.length === 0 && loadingState !== "loaded" && (
+        <Components.SuggestionMenu.Loader className="bn-suggestion-menu-loader" />
+      )}
+      {items.length === 0 && loadingState === "loaded" && (
         <Components.SuggestionMenu.EmptyItem className="bn-suggestion-menu-item">
           Ничего не найдено
         </Components.SuggestionMenu.EmptyItem>
@@ -146,7 +151,7 @@ function buildItem(it: KbMention, editor: BlockNoteEditor): DefaultReactSuggesti
     // видимым на подсветке выбранного пункта (там тот же тон, что у
     // заглушки с инициалами).
     icon: (
-      <span className="rounded-full ring-1 ring-border">
+      <span className="flex rounded-full ring-1 ring-border">
         <PersonAvatar src={it.avatar_url} name={label} size="sm" interactive={false} />
       </span>
     ),

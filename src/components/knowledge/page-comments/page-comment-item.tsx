@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Link2, MoreHorizontal, Pencil, SmilePlus, Trash2 } from "lucide-react";
+import { Link2, MessageSquareOff, MoreHorizontal, Pencil, SmilePlus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
@@ -102,9 +102,12 @@ export function PageCommentItem({
 
   if (comment.deletedAt) {
     return (
-      <div id={`comment-${comment.id}`} className="flex items-start gap-2">
-        <span className="size-7 rounded-full bg-muted shrink-0" />
-        <div className="flex-1 min-w-0 text-sm italic text-muted-foreground py-1">
+      <div id={`comment-${comment.id}`} className="flex items-center gap-2">
+        {/* Вместо пустого кружка — значок в круге размером с аватар. */}
+        <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+          <MessageSquareOff className="size-3.5" />
+        </span>
+        <div className="flex-1 min-w-0 text-[13px] text-muted-foreground">
           Комментарий удалён
         </div>
       </div>

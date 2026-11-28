@@ -569,10 +569,12 @@ input:-webkit-autofill {
  * BN'овские (которые не используют scope).
  * ──────────────────────────────────────────────────────────────── */
 .bn-sheerly .bn-editor .bn-thread-mark:not([data-orphan="true"]) {
-  background-color: hsl(38 92% 50% / 0.18);
+  /* Тон amber по рецепту DS ({c}-500 / 10–15), подчёркивание 1px —
+     заметно, но не кричит (было 18% и жирная линия 2px). */
+  background-color: rgb(245 158 11 / 0.12);
   text-decoration: underline;
-  text-decoration-color: hsl(38 92% 50%);
-  text-decoration-thickness: 2px;
+  text-decoration-color: rgb(245 158 11 / 0.7);
+  text-decoration-thickness: 1px;
   text-underline-offset: 3px;
   text-decoration-skip-ink: none;
   /* Раньше тут было `border-radius: 2px; padding: 1px 2px;` — pill-look.
@@ -604,7 +606,7 @@ input:-webkit-autofill {
 }
 .bn-sheerly .bn-editor .bn-thread-mark:not([data-orphan="true"]):hover,
 .bn-sheerly .bn-editor .bn-thread-mark.bn-thread-mark-selected {
-  background-color: hsl(38 92% 50% / 0.32);
+  background-color: rgb(245 158 11 / 0.24);
 }
 
 /* Gutter-индикатор рендерится через React (KbThreadGutterIndicators
@@ -1133,11 +1135,26 @@ input:-webkit-autofill {
 }
 .bn-sheerly .bn-toolbar.bn-formatting-toolbar button:hover,
 .bn-formatting-toolbar button:hover,
-.bn-sheerly .bn-toolbar.bn-formatting-toolbar button[data-state="on"],
-.bn-formatting-toolbar button[data-state="on"],
 .bn-sheerly .bn-toolbar.bn-formatting-toolbar button[data-state="open"],
 .bn-formatting-toolbar button[data-state="open"] {
   color: hsl(var(--foreground));
+}
+/* Включённое (жирный, выравнивание) — как активный инструмент приложения:
+ * синий значок на подложке brand/10, а не просто темнее. */
+.bn-sheerly .bn-toolbar.bn-formatting-toolbar button[data-state="on"],
+.bn-formatting-toolbar button[data-state="on"] {
+  background-color: hsl(var(--brand) / 0.1);
+  color: hsl(var(--brand-text));
+}
+/* Кнопка цвета: «A» в цвете текста без рамки-квадратика вокруг. */
+.bn-formatting-toolbar button[aria-label="Цвета"] .bn-color-icon {
+  border: 0 !important;
+  box-shadow: none !important;
+}
+/* Выделение текста в статье — фирменный синий, как выделение в полях
+ * приложения, а не системный голубой. */
+.bn-sheerly .bn-editor ::selection {
+  background-color: hsl(var(--brand) / 0.2);
 }
 .bn-sheerly .bn-toolbar.bn-formatting-toolbar button svg,
 .bn-formatting-toolbar button svg {

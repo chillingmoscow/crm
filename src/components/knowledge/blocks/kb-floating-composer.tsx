@@ -238,7 +238,7 @@ export function KbFloatingComposer({
               disabled={!canSubmit}
               onClick={() => void handleSubmit()}
               className={cn(
-                "inline-flex items-center justify-center size-7 rounded-full",
+                "inline-flex items-center justify-center size-7 rounded-md",
                 "transition-colors",
                 canSubmit
                   ? "bg-brand text-brand-foreground hover:bg-brand-hover"

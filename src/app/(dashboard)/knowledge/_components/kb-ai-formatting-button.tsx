@@ -153,9 +153,11 @@ export function KbAiFormattingButton({ aiEnabled }: { aiEnabled: boolean }) {
           disabled={!!pending}
         >
           {pending ? (
-            <Loader2 className="animate-spin text-brand" />
+            <Loader2 className="animate-spin" />
           ) : (
-            <Sparkles className="text-brand" />
+            // Серый, как остальные значки панели: синий — только у
+            // включённого состояния (DS «Иконки»).
+            <Sparkles />
           )}
         </Button>
       </PopoverTrigger>

@@ -42,7 +42,7 @@ export function CollectionViewIconPicker({
       <PopoverContent
         align="start"
         sideOffset={6}
-        className="w-[380px] p-0 rounded-[10px]"
+        className="w-[340px] p-0"
         onPointerDown={stopBlockInteraction}
         onMouseDown={stopBlockInteraction}
         onClick={stopBlockInteraction}
@@ -94,7 +94,7 @@ export function CollectionFieldIconPicker({
       <PopoverContent
         align="start"
         sideOffset={6}
-        className="w-[380px] p-0 rounded-[10px]"
+        className="w-[340px] p-0"
         onPointerDown={stopBlockInteraction}
         onMouseDown={stopBlockInteraction}
         onClick={stopBlockInteraction}

@@ -114,6 +114,9 @@ export function CollectionViewMenu({
             aria-label="Название вида"
             autoFocus={!coarsePointer}
             onChange={(event) => setNameDraft(event.currentTarget.value)}
+            onFocus={() => {
+              cancelNameRef.current = false;
+            }}
             onBlur={() => {
               if (cancelNameRef.current) {
                 cancelNameRef.current = false;
@@ -131,6 +134,9 @@ export function CollectionViewMenu({
                 event.preventDefault();
                 cancelNameRef.current = true;
                 setNameDraft(viewName);
+                // blur до ухода с панели: при размонтировании onBlur не
+                // вызывается, и флаг отмены остался бы взведённым.
+                event.currentTarget.blur();
                 setPanel("root");
               }
             }}
@@ -146,6 +152,9 @@ export function CollectionViewMenu({
             onChange={(event) =>
               setDescriptionDraft(event.currentTarget.value)
             }
+            onFocus={() => {
+              cancelDescriptionRef.current = false;
+            }}
             onBlur={() => {
               if (cancelDescriptionRef.current) {
                 cancelDescriptionRef.current = false;
@@ -158,6 +167,7 @@ export function CollectionViewMenu({
                 event.preventDefault();
                 cancelDescriptionRef.current = true;
                 setDescriptionDraft(description);
+                event.currentTarget.blur();
                 setPanel("root");
               }
               if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {

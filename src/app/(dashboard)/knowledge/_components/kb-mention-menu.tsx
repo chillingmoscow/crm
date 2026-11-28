@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 import type { BlockNoteEditor } from "@blocknote/core";
 import {
   SuggestionMenuController,
@@ -36,13 +36,16 @@ interface KbMentionMenuProps {
 export function KbMentionMenu({ editor }: KbMentionMenuProps) {
   // Поиск упал — в списке строка об ошибке, а не «Ничего не найдено».
   const [failed, setFailed] = useState(false);
+  // Ответ на устаревший запрос (по «а», когда уже ищут «аб») флаг не меняет.
+  const requestSeqRef = useRef(0);
   return (
     <KbMentionFailedContext.Provider value={failed}>
     <SuggestionMenuController
       triggerCharacter="@"
       getItems={async (query) => {
+        const seq = ++requestSeqRef.current;
         const { items, error } = await searchKbMentions(query);
-        setFailed(Boolean(error));
+        if (seq === requestSeqRef.current) setFailed(Boolean(error));
         // Группы подряд: сначала страницы, потом сотрудники.
         const ordered = [
           ...items.filter((it) => it.kind === "page"),

@@ -276,7 +276,9 @@ function KbSearchDialog({ open, onOpenChange, aiAskEnabled }: KbSearchDialogProp
                   event.key === "Enter" &&
                   aiAskEnabled &&
                   !ai &&
-                  !pickedResultRef.current &&
+                  // Стрелкой выбрали результат — Enter его откроет; пока
+                  // результатов нет, Enter по-прежнему спрашивает ИИ.
+                  !(pickedResultRef.current && hits.length > 0) &&
                   query.trim().length >= 4
                 ) {
                   event.preventDefault();

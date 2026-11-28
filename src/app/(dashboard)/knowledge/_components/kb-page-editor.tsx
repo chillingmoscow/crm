@@ -15,7 +15,6 @@ import {
   setCachedSignedUrl,
 } from "@/lib/knowledge/signed-url-cache";
 import { KbIconPicker } from "@/components/knowledge/kb-icon-picker";
-import { setKbEditor } from "@/app/(dashboard)/knowledge/_components/kb-editor-store";
 import { useKbPageViewTracker } from "@/lib/knowledge/use-page-view-tracker";
 import {
   clearKbPageLocalUnlock,
@@ -303,7 +302,6 @@ export function KbPageEditor({
   const renderExtras = useCallback(
     (editor: BlockNoteEditorType) => (
       <>
-        <KbEditorRegistrar editor={editor} />
         <KbMentionMenu editor={editor} />
         <KbSideMenuController editable={canEdit} />
         {hasComments && <KbThreadGutterIndicators />}
@@ -496,18 +494,4 @@ export function KbPageEditor({
       {afterContent}
     </div>
   );
-}
-
-/** Регистрирует editor instance в module-store на mount + очищает на
- *  unmount. Без этого Undo/Redo кнопки в KB-топбаре не знают, к какому
- *  редактору обращаться (топбар рендерится в server-side слоте, далеко
- *  от editor mount-point). См. kb-editor-store.ts. */
-function KbEditorRegistrar({ editor }: { editor: BlockNoteEditorType }) {
-  useEffect(() => {
-    setKbEditor(editor);
-    return () => {
-      setKbEditor(null);
-    };
-  }, [editor]);
-  return null;
 }

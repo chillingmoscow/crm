@@ -19,7 +19,7 @@ import { useSyncExternalStore } from "react";
  * KB-сайдбар живут на разных уровнях React-дерева
  * (`(dashboard)/layout.tsx` и `(dashboard)/knowledge/layout.tsx` —
  * server-components, client-границы у каждого свои). Module-singleton +
- * `useSyncExternalStore` — то же что используется в kb-editor-store.ts
+ * `useSyncExternalStore` (module-store без контекста)
  * для Undo/Redo-кнопок.
  */
 

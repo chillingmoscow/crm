@@ -42,14 +42,15 @@ stable
 security invoker
 set search_path = public, pg_catalog
 as $$
-  select to_char(
-           date_trunc('month', s.started_at at time zone public.get_active_account_timezone()),
-           'YYYY-MM'
-         ),
+  -- Пояс берём один раз (как в 376): SECURITY DEFINER-функцию Postgres не
+  -- встраивает, в выражении она вызывалась бы на каждую сессию.
+  with tz as (select public.get_active_account_timezone() as zone)
+  select to_char(date_trunc('month', s.started_at at time zone tz.zone), 'YYYY-MM'),
          coalesce(sum(s.duration_seconds), 0)::bigint,
          count(*)::bigint,
          count(distinct s.user_id)::bigint
     from public.kb_page_view_sessions s
+    cross join tz
    where s.account_id = public.get_active_account_id()
      and s.started_at >= p_since
    group by 1

@@ -67,8 +67,8 @@ import {
   loadSalesForClient,
   requestSalesSync,
 } from "../actions";
-import { DayDrawer } from "./day-drawer";
-import { MonthPlan } from "./month-plan";
+import { DayScreen } from "./day-screen";
+import { TurnoverMetric } from "./month-plan";
 import {
   SalesStatusBadge,
   salesDayStatus,
@@ -213,9 +213,10 @@ export function ShiftsClient({
   const [loading, setLoading] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [status, setStatus] = useState("");
-  // Панели дня держим смонтированными, пока они уезжают (docs/motion.md):
-  // `shown*` — последнее открытое значение. `n` — номер открытия: каждое
-  // открытие начинается с чистой формы, даже если это тот же день.
+  // Смена открывается экраном во всю колонку (`drawer`), архивный день Glide —
+  // панелью; её держим смонтированной, пока она уезжает (docs/motion.md):
+  // `shownArchive` — последнее открытое значение. `n` — номер открытия:
+  // каждое открытие начинается с чистой формы, даже если это тот же день.
   const openCount = useRef(0);
   const [drawer, setDrawerState] = useState<{ day: SalesDay; tab: string; n: number } | null>(
     null,
@@ -235,15 +236,10 @@ export function ShiftsClient({
       setArchiveDrawerState(next && { ...next, n: ++openCount.current }),
     [],
   );
-  const [shownDrawer, setShownDrawer] = useState(drawer);
   const [shownArchive, setShownArchive] = useState(archiveDrawer);
-  useEffect(() => {
-    if (drawer) setShownDrawer(drawer);
-  }, [drawer]);
   useEffect(() => {
     if (archiveDrawer) setShownArchive(archiveDrawer);
   }, [archiveDrawer]);
-  const dayDrawer = drawer ?? shownDrawer;
   const archiveDay = archiveDrawer ?? shownArchive;
 
   // Ссылка на день (`?day=…&tab=…`) открывает его панель один раз.
@@ -676,7 +672,30 @@ export function ShiftsClient({
   const monthIsEmpty = monthDays.length === 0;
   return (
     <PageFrame className="flex min-w-0 flex-col gap-4">
-      <Breadcrumbs items={[{ label: "Продажи" }, { label: "Смены" }]} />
+      {drawer && (
+        <DayScreen
+          key={drawer.n}
+          day={drawer.day}
+          tab={drawer.tab}
+          timezone={data.timezone}
+          canAdjust={can("adjust")}
+          onBack={() => setDrawer(null)}
+          onSaved={(d) => {
+            setData((x) => ({
+              ...x,
+              days: x.days.map((r) => (r.id === d.id ? d : r)),
+            }));
+            setDrawer(null);
+          }}
+        />
+      )}
+      {/* Список остаётся смонтированным под экраном смены: фильтры,
+          сортировка и страница таблицы те же после возврата. */}
+      <div hidden={!!drawer}>
+      <div className="flex min-w-0 flex-col gap-4">
+      {!drawer && (
+        <Breadcrumbs items={[{ label: "Продажи" }, { label: "Смены" }]} />
+      )}
       <TablePageHeader
         title="Смены"
         count={
@@ -864,16 +883,21 @@ export function ShiftsClient({
       ) : (
         <>
           <MetricStrip label="Итоги за месяц">
-            <Metric
-              primary
+            <TurnoverMetric
               label={metricLabels.turnover}
-              value={<AnimatedMoney value={totals.turnover.value} />}
-              hint={
+              value={totals.turnover.value}
+              fallbackHint={
                 metricHint("turnover") ??
                 (isFiltered
                   ? "С учётом поиска и фильтров"
                   : `За ${countRu(filtered.length, "смену", "смены", "смен")}`)
               }
+              // План — к обороту всего месяца: с фильтрами таблицы его не сравниваем.
+              plan={monthLoading || isFiltered ? undefined : data.plan}
+              month={month}
+              today={today}
+              days={monthDays}
+              canConfigure={data.permissions.includes("sales.plan")}
             />
             <Metric
               label="Средний чек гостя"
@@ -891,13 +915,6 @@ export function ShiftsClient({
               hint={metricHint("deposits")}
             />
           </MetricStrip>
-          <MonthPlan
-            plan={monthLoading ? undefined : data.plan}
-            month={month}
-            today={today}
-            days={monthDays}
-            canConfigure={data.permissions.includes("sales.plan")}
-          />
           <div
             aria-busy={monthLoading}
             className={`transition-opacity duration-300 ease-[var(--ease-soft)] ${monthLoading ? "opacity-60" : ""}`}
@@ -952,24 +969,8 @@ export function ShiftsClient({
           />
         </>
       )}
-      {dayDrawer && (
-        <DayDrawer
-          key={dayDrawer.n}
-          open={!!drawer}
-          day={dayDrawer.day}
-          tab={dayDrawer.tab}
-          timezone={data.timezone}
-          canAdjust={can("adjust")}
-          onClose={() => setDrawer(null)}
-          onSaved={(d) => {
-            setData((x) => ({
-              ...x,
-              days: x.days.map((r) => (r.id === d.id ? d : r)),
-            }));
-            setDrawer(null);
-          }}
-        />
-      )}
+      </div>
+      </div>
       {archiveDay && (
         <ArchiveDayDrawer
           key={archiveDay.n}

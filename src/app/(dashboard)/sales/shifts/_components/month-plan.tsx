@@ -1,42 +1,38 @@
 "use client";
 import Link from "next/link";
-import { Target } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { AnimatedMoney, AnimatedNumber } from "@/components/shared/animated-money";
-import { Money } from "@/components/shared/money";
-import { ProgressRing } from "@/components/shared/progress-ring";
+import { Metric } from "@/components/shared/metric-strip";
+import { AnimatedMoney } from "@/components/shared/animated-money";
 import { countRu } from "@/lib/format/plural";
 import { planProgress, FORECAST_MIN_SHIFTS } from "@/lib/sales/plan";
 import type { SalesDay } from "@/lib/sales/types";
-import { cn } from "@/lib/utils";
 import s from "./month-plan.module.css";
 
-const percent = (ratio: number) => Math.round(ratio * 100);
-const formatPercent = (n: number) => `${new Intl.NumberFormat("ru-RU").format(n)} %`;
+const rub = (n: number) =>
+  `${new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 }).format(n)} ₽`;
+const percent = (ratio: number) =>
+  `${new Intl.NumberFormat("ru-RU").format(Math.round(ratio * 100))} %`;
 
 /**
- * Кольцо «оборот к плану»: тёмная дуга — факт, светлая следом — прогноз на
- * конец месяца (docs/motion.md, «Кольцо плана»).
+ * Плитка «Оборот» в итогах месяца на «Сменах». С планом под суммой —
+ * полоска «оборот к плану» (тёмная часть — факт, светлая следом — прогноз
+ * на конец месяца), «87 % из 3 800 000 ₽» и «Прогноз 93 % плана»; как
+ * считается прогноз — в подсказке. Без плана — число смен и, тем, кто задаёт план,
+ * ссылка «Задать план».
  */
-function PlanRing({ ratio, forecast }: { ratio: number | null; forecast: number | null }) {
-  return (
-    <ProgressRing ratio={ratio} forecast={forecast}>
-      <AnimatedNumber value={ratio === null ? null : percent(ratio)} format={formatPercent} />
-    </ProgressRing>
-  );
-}
-
-/**
- * План месяца на «Сменах»: оборот к плану кольцом и прогноз на конец месяца.
- * Без плана кольца нет; тем, кто настраивает смены, — тихая ссылка «Задать план».
- */
-export function MonthPlan({
+export function TurnoverMetric({
+  label,
+  value,
+  fallbackHint,
   plan,
   month,
   today,
   days,
   canConfigure,
 }: {
+  label: string;
+  value: number | null;
+  /** Подпись под суммой без плана: «За 28 смен», «С учётом фильтров». */
+  fallbackHint: string;
   /** `undefined` — план не загружали, `null` — плана нет. */
   plan: number | null | undefined;
   month: string;
@@ -47,96 +43,87 @@ export function MonthPlan({
 }) {
   // План месяца задаётся в «Статистике» (вместе с долей алкоголя и прогнозом).
   const settingsHref = `/sales/statistics?plan=${month}`;
-  if (plan === undefined) return null;
-  if (plan === null)
-    return canConfigure && month >= today.slice(0, 7) ? (
-      <div>
-        <Button variant="ghost" size="sm" className="-ml-2 text-muted-foreground" asChild>
-          <Link href={settingsHref}>
-            <Target />
-            Задать план на месяц
-          </Link>
-        </Button>
-      </div>
-    ) : null;
-  const p = planProgress({ plan, month, today, days });
-  // Оборота нет — разницу с планом не считаем: неизвестное не равно нулю.
-  const left = p.fact === null ? null : plan - p.fact;
-  return (
-    <section
-      aria-label="План месяца"
-      className={cn(s.card, "rounded-lg border bg-card p-4 sm:p-5")}
+  const planLink = canConfigure && plan !== undefined && (plan !== null || month >= today.slice(0, 7)) ? (
+    <Link
+      href={settingsHref}
+      className="text-xs font-normal text-brand hover:underline"
     >
-      <div className={s.layout}>
-      <div className={cn(s.main, "flex min-w-0 items-center gap-4")}>
-        {/* Кольцо рисуется заново при смене месяца, числа — досчитываются
-            от прежних значений (docs/motion.md). */}
-        <PlanRing key={month} ratio={p.ratio} forecast={p.forecast?.ratio ?? null} />
-        <div className="min-w-0 space-y-1">
-          <p className="text-sm text-muted-foreground">План месяца</p>
-          <p className="flex flex-wrap items-baseline gap-x-1.5 text-lg font-semibold tabular-nums leading-tight">
-            <AnimatedMoney value={p.fact} />
-            <span className="text-sm font-normal text-muted-foreground">из</span>
-            <Money value={plan} />
-          </p>
-          <p className="text-[13px] text-muted-foreground">
-            {p.phase === "future" ? (
-              "Месяц ещё не начался"
-            ) : left === null ? (
-              p.phase === "past" ? "Оборота за месяц нет" : "Оборота пока нет"
-            ) : left > 0 ? (
-              <>
-                {p.phase === "past" ? "Не хватило" : "До плана"} <Money value={left} />
-              </>
-            ) : (
-              <>
-                План выполнен{left < 0 && <>, сверх плана <Money value={-left} /></>}
-              </>
+      {plan === null ? "Задать план" : "План"}
+    </Link>
+  ) : null;
+  if (!plan)
+    return (
+      <Metric
+        primary
+        label={label}
+        icon={planLink}
+        value={<AnimatedMoney value={value} />}
+        hint={fallbackHint}
+      />
+    );
+  const p = planProgress({ plan, month, today, days });
+  const fact = p.ratio ?? 0;
+  const forecast = p.forecast?.ratio ?? null;
+  const forecastTip = p.forecast
+    ? `Прогноз на конец месяца ${rub(p.forecast.value)}: оборот на сейчас и средний оборот закрытой смены ${rub(p.forecast.pace)} × ${
+        p.forecast.remaining > 0
+          ? `ещё ${countRu(p.forecast.remaining, "смену", "смены", "смен")}`
+          : "0 смен"
+      }. Сколько смен впереди, считаем по тому, как заведение работало в прошедшие дни месяца`
+    : `Прогноз появится, когда закроются ${countRu(FORECAST_MIN_SHIFTS, "смена", "смены", "смен")}`;
+  const left = p.fact === null ? null : plan - p.fact;
+  const text =
+    p.phase === "future"
+      ? `План ${rub(plan)}, месяц ещё не начался`
+      : p.ratio === null
+        ? `План ${rub(plan)}, оборота пока нет`
+        : left !== null && left <= 0
+          ? `План ${rub(plan)} выполнен · ${percent(p.ratio)}`
+          : `${percent(p.ratio)} из ${rub(plan)}`;
+  return (
+    <Metric
+      primary
+      label={label}
+      icon={planLink}
+      value={<AnimatedMoney value={value} />}
+      hint={
+        <>
+          <span
+            className={s.bar}
+            role="progressbar"
+            aria-label="Оборот к плану месяца"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(Math.min(fact, 1) * 100)}
+          >
+            {forecast !== null && (
+              <span
+                key={`f-${month}`}
+                className={s.forecast}
+                style={{ width: `${Math.min(forecast, 1) * 100}%` }}
+              />
             )}
-          </p>
-        </div>
-      </div>
-      {p.phase === "current" && (
-        <div className={cn(s.forecast, "min-w-0")}>
-          {p.forecast ? (
-            <>
-              <p className="text-sm text-muted-foreground">Прогноз на конец месяца</p>
-              <p className="mt-1 text-lg font-semibold tabular-nums leading-tight">
-                <AnimatedMoney value={p.forecast.value} />
-                <span className="ml-2 whitespace-nowrap text-sm font-normal text-muted-foreground">
-                  {formatPercent(percent(p.forecast.ratio))} плана
-                </span>
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Оборот на сейчас и средний оборот закрытой смены{" "}
-                <Money value={p.forecast.pace} /> ×{" "}
-                {p.forecast.remaining > 0
-                  ? `ещё ${countRu(p.forecast.remaining, "смену", "смены", "смен")}`
-                  : "0 смен"}
-                . Сколько смен впереди, считаем по тому, как заведение работало
-                в прошедшие дни месяца
-              </p>
-            </>
-          ) : (
-            <p className="text-[13px] text-muted-foreground">
-              Прогноз на конец месяца появится, когда закроются{" "}
-              {countRu(FORECAST_MIN_SHIFTS, "смена", "смены", "смен")}
-              {p.closedShifts > 0 ? `. Пока закрыто: ${p.closedShifts}` : ""}
-            </p>
+            <span
+              key={`a-${month}`}
+              className={s.fact}
+              style={{ width: `${Math.min(fact, 1) * 100}%` }}
+            />
+          </span>
+          <span className="block">{text}</span>
+          {p.phase === "current" && p.ratio !== null && (left === null || left > 0) && (
+            <span className="block">
+              <span
+                data-tip={forecastTip}
+                className="underline decoration-dotted underline-offset-2"
+              >
+                {p.forecast
+                  ? `Прогноз ${percent(p.forecast.ratio)} плана`
+                  : "Прогноза пока нет"}
+              </span>
+            </span>
           )}
-        </div>
-      )}
-      {canConfigure && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className={cn(s.edit, "text-muted-foreground")}
-          asChild
-        >
-          <Link href={settingsHref}>Изменить план</Link>
-        </Button>
-      )}
-      </div>
-    </section>
+        </>
+      }
+    />
   );
 }

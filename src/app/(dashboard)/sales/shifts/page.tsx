@@ -12,7 +12,7 @@ import { SalesNoAccess } from "../_components/sales-no-access";
 
 export const metadata: Metadata = { title: "Смены" };
 
-const TABS = ["values", "employees", "comments", "history"];
+const TABS = ["values", "cash", "employees", "comments", "history"];
 
 export default async function SalesShiftsPage({
   searchParams,

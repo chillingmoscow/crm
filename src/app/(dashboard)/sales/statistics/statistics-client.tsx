@@ -210,8 +210,7 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
   const nativeMonths = useMemo(() => sourceRows(data, "native"), [data]);
   const [year, setYear] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [busy, setBusy] = useState(false),
-    [reportBusy, setReportBusy] = useState(false),
+  const [reportBusy, setReportBusy] = useState(false),
     [exporting, setExporting] = useState(false);
   const [detail, setDetail] = useState<StatisticsRow | null>(null);
   // Панель закрывается с анимацией: пока она уезжает, показываем последний месяц.
@@ -377,19 +376,30 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
   });
   const changeSorting = (next: SortingState) => st.setSorting(next);
 
-  async function refresh() {
-    setBusy(true);
-    try {
-      const next = unwrapAction(await loadStatistics());
-      if (next.venueId !== initial.venueId)
-        throw new Error("Заведение изменилось. Обновите страницу");
-      setData(next);
-    } catch (e) {
-      toast.error(salesErrorText(e instanceof Error ? e.message : null, "Не удалось обновить статистику"));
-    } finally {
-      setBusy(false);
-    }
-  }
+  // Отчёты Quick Resto считаются в очереди: пока хоть один ждёт или
+  // обновляется, страница сама перечитывает статистику — отдельная кнопка
+  // «обновить данные» не нужна.
+  const reportsInFlight = data.reports.some(
+    (r) => r.state === "pending" || r.state === "running",
+  );
+  useEffect(() => {
+    if (!reportsInFlight) return;
+    let alive = true;
+    const timer = window.setInterval(() => {
+      void loadStatistics()
+        .then(unwrapAction)
+        .then((next) => {
+          if (alive && next.venueId === initial.venueId) setData(next);
+        })
+        .catch(() => {
+          // Сбой фонового опроса не мешает работать: попробуем на следующем шаге.
+        });
+    }, 5000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [reportsInFlight, initial.venueId]);
   async function requestReports(month: string) {
     setReportBusy(true);
     try {
@@ -592,15 +602,6 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
                     <Archive />
                   </TableIconButton>
                 )}
-                <TableIconButton
-                  label="Обновить данные на странице"
-                  disabled={busy}
-                  onClick={() => void refresh()}
-                >
-                  <RefreshCw
-                    className={busy ? "animate-spin motion-reduce:animate-none" : undefined}
-                  />
-                </TableIconButton>
               </>
             }
             exportAction={

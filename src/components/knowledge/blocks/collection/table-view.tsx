@@ -157,7 +157,7 @@ function CollectionTableTitleCell({
         onClick={(event) => event.stopPropagation()}
       >
         {showPageIcon && (
-          <KbPageIcon icon={item.icon} color={item.icon_color} size={17} />
+          <KbPageIcon icon={item.icon} color={item.icon_color} size={16} />
         )}
         <span className="kb-collection-table-title-text">
           {item.title || "Без названия"}

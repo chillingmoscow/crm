@@ -36,7 +36,7 @@ export function CollectionViewIconPicker({
           onMouseDown={stopBlockInteraction}
           onClick={stopBlockInteraction}
         >
-          <KbPageIcon icon={value} color={null} size={18} />
+          <KbPageIcon icon={value} color={null} size={16} />
         </button>
       </PopoverTrigger>
       <PopoverContent

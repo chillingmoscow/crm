@@ -164,7 +164,7 @@ export function KbTrashClient({ rows }: { rows: TrashRow[] }) {
           const r = row.original;
           return (
             <span className="flex min-w-0 items-center gap-2.5">
-              <KbPageIcon icon={r.icon} color={r.iconColor} size={18} />
+              <KbPageIcon icon={r.icon} color={r.iconColor} size={16} />
               <span className="flex min-w-0 flex-col">
                 <Link
                   href={`/knowledge/${r.slug}`}

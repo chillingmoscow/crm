@@ -63,11 +63,14 @@ export function TaskList({
   onOpen,
   onCreate,
   onRefresh,
+  notice,
 }: {
   data: TaskData;
   onOpen: (task: TaskDefinition) => void;
   onCreate?: () => void;
   onRefresh: () => Promise<unknown>;
+  /** Предупреждение под шапкой списка (сбои отправки в Telegram). */
+  notice?: React.ReactNode;
 }) {
   const st = useTableState({
     tableId: `schedule.tasks.${data.userId}.${data.venueId ?? data.definitions[0]?.venue_id ?? "venue"}`,
@@ -320,6 +323,7 @@ export function TaskList({
           />
         }
       />
+      {notice}
       <TableConditions
         label="Условия списка задач"
         open={filtersVisible}

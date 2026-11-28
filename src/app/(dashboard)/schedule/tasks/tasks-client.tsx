@@ -40,7 +40,7 @@ import {
 import { ProfileHeader } from "@/components/shared/profile-header";
 import { ProfileDangerAction } from "@/components/shared/profile-danger-zone";
 import { SaveBar } from "@/components/shared/save-bar";
-import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { ConfirmDialog, useConfirm } from "@/components/shared/confirm-dialog";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
   TaskHeaderActions,
@@ -50,7 +50,7 @@ import { InstructionPagePicker, InstructionBody } from "./instruction-page";
 import { TaskList } from "./task-list";
 import { DeleteTaskDialog } from "./delete-task-dialog";
 import {
-  taskMissing,
+  taskSetupParts,
   taskStatus as definitionStatus,
   taskStatusTone,
 } from "./task-status";
@@ -74,8 +74,10 @@ import {
   taskPhotoUrl,
   taskHistory,
   retryTaskMessage,
+  confirmTaskMessage,
 } from "./actions";
 import { unwrapAction } from "@/lib/actions/result";
+import { flushAllPendingSaves } from "@/lib/knowledge/pending-saves";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 import { Disclosure } from "@/components/shared/disclosure";
 
@@ -92,6 +94,8 @@ const actionLabels: Record<string, string> = {
   "run.approve": "Выполнение принято",
   "run.return": "Отчёт возвращён",
   "result.settled": "Результат учтён",
+  "message.retry": "Сообщение отправлено ещё раз",
+  "message.confirmed": "Отмечено, что сообщение дошло",
 };
 function Field({
   label,
@@ -432,12 +436,22 @@ export function TasksClient({
       <div hidden={!!editor} className="space-y-4">
         <TaskPageTitle title={null} />
         <TaskList
-        data={data}
+          data={data}
           onOpen={setEditor}
           onCreate={create ? () => setEditor("new") : undefined}
           onRefresh={refresh}
-      />
-      {manage && <TaskMessageErrors messages={data.messages} onSaved={async () => { await refresh(); }} />}
+          notice={
+            manage ? (
+              <TaskMessageErrors
+                messages={data.messages}
+                today={data.today}
+                onSaved={async () => {
+                  await refresh();
+                }}
+              />
+            ) : null
+          }
+        />
     </div>
       {editor ? (
         <DefinitionEditor
@@ -455,6 +469,48 @@ export function TasksClient({
   );
 }
 
+/**
+ * Чего не хватает задаче — прямо под статусом, а не в подсказке при
+ * наведении: иначе «Не настроена» выглядит как сбой после сохранения.
+ * Каждая часть ведёт на вкладку, где её заполняют.
+ */
+function TaskSetupHint({
+  task,
+  onOpenTab,
+}: {
+  task: TaskDefinition;
+  onOpenTab: (tab: string) => void;
+}) {
+  const parts = taskSetupParts(task);
+  const link = (label: string, tab: string) => (
+    <button
+      key={label}
+      type="button"
+      className="text-brand hover:underline"
+      onClick={() => onOpenTab(tab)}
+    >
+      {label}
+    </button>
+  );
+  return (
+    <span className="text-sm text-muted-foreground">
+      {parts.length ? (
+        <>
+          Не хватает:{" "}
+          {parts.map((part, i) => (
+            <span key={part.label}>
+              {i > 0 && ", "}
+              {link(part.label, part.tab)}
+            </span>
+          ))}
+        </>
+      ) : (
+        <>Не назначается сотрудникам — включите {link("автоматическое назначение", "settings")}</>
+      )}
+    </span>
+  );
+}
+
 function DefinitionEditor({
   task,
   data,
@@ -469,6 +525,7 @@ function DefinitionEditor({
   onSaved: () => Promise<void>;
 }) {
   const [deleting, setDeleting] = useState(false);
+  const [tab, setTab] = useState("main");
   const canFinance = data.permissions.includes("payroll.configure"),
     canPublish = data.permissions.includes("schedule.checklist_publish");
   const [value, setValue] = useState<TaskInput>(() =>
@@ -516,11 +573,12 @@ function DefinitionEditor({
       value.items.map((x, i) => (i === index ? { ...x, ...patch } : x)),
     );
   async function submit() {
-    if (
-      value.enabled &&
-      (!value.template_id || !value.recurrence || !value.items.length)
-    ) {
-      toast.error("Для включения задачи укажите смену, повтор и чек-лист");
+    const missing = taskSetupParts(value);
+    if (value.enabled && missing.length) {
+      toast.error(
+        `Чтобы задача назначалась, добавьте: ${missing.map((part) => part.label).join(", ")}`,
+      );
+      setTab(missing[0].tab);
       return;
     }
     const equipmentGroups = equipmentTexts.map((text) =>
@@ -541,6 +599,9 @@ function DefinitionEditor({
     }
     setBusy(true);
     try {
+      // Инструкцию могли править прямо в задаче: дописываем её в базу знаний
+      // до сохранения, чтобы задача взяла последний текст.
+      await flushAllPendingSaves();
       const r = await saveTask({ ...value, equipment_groups: equipmentGroups });
       if (r.error) toast.error(r.error);
       else {
@@ -592,19 +653,13 @@ function DefinitionEditor({
         }
       >
         {task !== "new" && (
-          <span
-            className="inline-flex"
-            data-tip={
-              status === "Не настроена"
-                ? `Не хватает: ${taskMissing(task).join(", ")}`
-                : undefined
-            }
-          >
-            <StatusBadge tone={taskStatusTone(status)}>{status}</StatusBadge>
-          </span>
+          <StatusBadge tone={taskStatusTone(status)}>{status}</StatusBadge>
+        )}
+        {task !== "new" && status !== "Работает" && (
+          <TaskSetupHint task={task} onOpenTab={setTab} />
         )}
       </ProfileHeader>
-      <Tabs defaultValue="main" className="w-full">
+      <Tabs value={tab} onValueChange={setTab} className="w-full">
         <ProfileTabsList>
           <TabsTrigger value="main">Основное</TabsTrigger>
           <TabsTrigger value="checklist">Чек-лист</TabsTrigger>
@@ -847,7 +902,7 @@ function DefinitionEditor({
           </p>
           <SwitchRow
             label="Требуется приёмка"
-            description="Выполнение засчитывается после проверки управляющим. Без приёмки — сразу после сдачи отчёта."
+            description="Выполнение засчитывается после проверки управляющим, для этого нужен чек-лист. Без приёмки — сразу, как сотрудник отметит выполнение; чек-лист можно не заводить."
             checked={value.review_mode === "manager"}
             onChange={(required) =>
               set("review_mode", required ? "manager" : "auto")
@@ -1271,6 +1326,7 @@ export function TaskReport({
           </Disclosure>
           )
         )}
+{o.snapshot.items.length > 0 && (
         <ProfileSection title="Отчёт">
           {o.snapshot.items.map((i, index) => (
             <div key={i.id} className="space-y-2 border-b pb-4">
@@ -1347,6 +1403,7 @@ export function TaskReport({
             </div>
           ))}
         </ProfileSection>
+        )}
         {review && (
           <div className="space-y-4">
             <Field label="Замечания">
@@ -1395,59 +1452,128 @@ export function TaskReport({
     </TaskScreen>
   );
 }
+const messageKinds: Record<string, string> = {
+  daily: "Задачи на день",
+  schedule_open: "Напоминание: график открыт",
+  schedule_deadline: "Напоминание о сроке графика",
+  monday: "Напоминание о графике",
+  wednesday: "Напоминание о графике",
+};
+
+/**
+ * Сообщения в Telegram, отправку которых сервер не смог подтвердить (связь
+ * с Telegram оборвалась на полпути). Сообщение могло дойти, а могло нет —
+ * повтор вслепую рискует продублировать его, поэтому решает человек,
+ * заглянув в чат. Висит над списком задач, пока по нему не решат; за
+ * прошедшие дни такие сообщения гаснут сами.
+ */
 function TaskMessageErrors({
   messages,
+  today,
   onSaved,
 }: {
   messages: TaskData["messages"];
+  today: string;
   onSaved: () => Promise<void>;
 }) {
-  const [evidence, setEvidence] = useState<Record<string, string>>({}),
-    [busy, setBusy] = useState<string | null>(null);
-  if (!messages.length) return null;
-  async function retry(id: string) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const { confirm, dialog } = useConfirm();
+  // Ошибку отправки очередь повторяет сама (до 5 попыток) — показываем её,
+  // только когда попытки кончились. «Не знаем, дошло ли» — сразу.
+  const pending = messages.filter(
+    (m) =>
+      m.business_date >= today &&
+      (m.state === "review" || m.attempts >= 5),
+  );
+  if (!pending.length) return null;
+  async function run(id: string, action: "retry" | "confirm") {
+    if (
+      action === "retry" &&
+      !(await confirm({
+        title: "Отправить сообщение ещё раз?",
+        description:
+          "Убедитесь, что в чате его нет: если оно всё-таки дошло, сотрудники получат его дважды.",
+        confirmLabel: "Отправить",
+      }))
+    )
+      return;
     setBusy(id);
     try {
-      const r = await retryTaskMessage(id, evidence[id] ?? "");
+      const r =
+        action === "retry"
+          ? await retryTaskMessage(id)
+          : await confirmTaskMessage(id);
       if (r.error) toast.error(r.error);
       else {
-        toast.success("Сообщение поставлено в очередь");
+        toast.success(
+          action === "retry"
+            ? "Сообщение поставлено в очередь"
+            : "Отметили, что сообщение дошло",
+        );
         await onSaved();
       }
     } catch {
-      toast.error("Не удалось повторить отправку");
+      toast.error("Не удалось обработать сообщение");
     } finally {
       setBusy(null);
     }
   }
   return (
-    <ProfileSection title="Сообщения требуют проверки">
-      {messages.map((m) => (
-        <div key={m.id} className="space-y-2 border-b pb-4">
-          <p className="text-sm">
-            {dayLabel(m.business_date)} · чат {m.chat_id}
-          </p>
-          <p className="text-sm text-destructive">
-            {m.error || "Ответ Telegram неизвестен"}
-          </p>
-          <Field label="Подтверждение отсутствия сообщения в чате">
-            <Textarea
-              value={evidence[m.id] ?? ""}
-              onChange={(e) =>
-                setEvidence((s) => ({ ...s, [m.id]: e.target.value }))
-              }
-            />
-          </Field>
-          <Button
-            variant="outline"
-            disabled={!!busy || (evidence[m.id]?.trim().length ?? 0) < 10}
-            onClick={() => void retry(m.id)}
+    <div
+      role="alert"
+      className="space-y-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm"
+    >
+      <div className="space-y-1">
+        <p className="font-medium">
+          {pending.length === 1
+            ? "Сообщение в Telegram требует проверки"
+            : `Сообщения в Telegram требуют проверки: ${pending.length}`}
+        </p>
+        <p className="text-muted-foreground">
+          Связь с Telegram оборвалась во время отправки, поэтому неизвестно,
+          дошло ли сообщение. Загляните в чат: если оно там есть, отметьте
+          это, если нет — отправьте ещё раз.
+        </p>
+      </div>
+      <ul className="divide-y divide-amber-500/20">
+        {pending.map((m) => (
+          <li
+            key={m.id}
+            className="flex flex-wrap items-center justify-between gap-2 py-2 first:pt-0 last:pb-0"
           >
-            Повторить отправку
-          </Button>
-        </div>
-      ))}
-    </ProfileSection>
+            <span className="min-w-0">
+              {messageKinds[m.kind] ?? "Сообщение"} · {dayLabel(m.business_date)}
+              {m.state === "error" && m.error && (
+                <span className="block text-xs text-muted-foreground">
+                  Не отправилось: {m.error}
+                </span>
+              )}
+            </span>
+            <span className="flex gap-2">
+              {m.state === "review" && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!!busy}
+                  onClick={() => void run(m.id, "confirm")}
+                >
+                  Есть в чате
+                </Button>
+              )}
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!!busy}
+                onClick={() => void run(m.id, "retry")}
+              >
+                Отправить ещё раз
+              </Button>
+            </span>
+          </li>
+        ))}
+      </ul>
+      {dialog}
+    </div>
   );
 }
 

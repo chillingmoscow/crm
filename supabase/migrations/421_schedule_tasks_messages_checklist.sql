@@ -8,6 +8,9 @@
 --    принимает управляющий одной кнопкой.
 -- 3. Новое действие «Сообщение в чате есть» — закрывает проверку без
 --    повторной отправки.
+-- 4. Задача без приёмки включается и без чек-листа: сотрудник читает
+--    инструкцию и отмечает выполнение. Чек-лист обязателен, только когда
+--    выполнение принимает управляющий — ему нужно, что проверять.
 
 begin;
 
@@ -103,10 +106,38 @@ $$;
 revoke all on function public.schedule_confirm_task_message(uuid) from public, anon;
 grant execute on function public.schedule_confirm_task_message(uuid) to authenticated;
 
+-- 4. Чек-лист обязателен только у задачи с приёмкой.
+alter table public.schedule_task_definitions
+  drop constraint schedule_task_enabled_config;
+alter table public.schedule_task_definitions
+  add constraint schedule_task_enabled_config check (
+    not enabled or (
+      template_id is not null and recurrence is not null
+      and (review_mode = 'auto' or jsonb_array_length(items) > 0)
+    )
+  );
+
+do $migration$
+declare
+  body text;
+  old_check constant text := 'or rec is null or jsonb_array_length(p_input->''items'')=0) then raise exception ''Для включения задачи укажите смену, повтор и чек-лист''';
+  new_check constant text := 'or rec is null or (p_input->>''review_mode''<>''auto'' and jsonb_array_length(p_input->''items'')=0)) then raise exception ''Для включения задачи укажите смену и повтор, а для задачи с приёмкой — ещё и чек-лист''';
+begin
+  select pg_get_functiondef('public.schedule_task_command(text,jsonb)'::regprocedure) into body;
+  if position(old_check in body) = 0 then
+    raise exception 'Не найдена ожидаемая версия schedule_task_command';
+  end if;
+  execute replace(body, old_check, new_check);
+end
+$migration$;
+
 do $check$
 begin
   if position('m.state in (''pending'', ''error'', ''review'')' in pg_get_functiondef('public.schedule_claim_task_message()'::regprocedure)) = 0 then
     raise exception 'Очередь сообщений не обновилась';
+  end if;
+  if position('p_input->>''review_mode''<>''auto''' in pg_get_functiondef('public.schedule_task_command(text,jsonb)'::regprocedure)) = 0 then
+    raise exception 'Сохранение задач не обновилось';
   end if;
   if has_function_privilege('anon', 'public.schedule_confirm_task_message(uuid)', 'execute') then
     raise exception 'schedule_confirm_task_message доступна анониму';

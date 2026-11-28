@@ -2,12 +2,20 @@ import type { TaskDefinition } from "@/lib/schedule/tasks";
 
 export type TaskStatus = "Работает" | "Не настроена" | "Черновик";
 
-type SetupFields = Pick<TaskDefinition, "template_id" | "recurrence" | "items">;
+type SetupFields = Pick<
+  TaskDefinition,
+  "template_id" | "recurrence" | "items" | "review_mode"
+>;
 
-/** Чего не хватает, чтобы задачу можно было включить, и на какой вкладке это задают. */
+/**
+ * Чего не хватает, чтобы задачу можно было включить, и на какой вкладке это
+ * задают. Чек-лист нужен только задаче с приёмкой: управляющему надо, что
+ * проверять. Без приёмки сотрудник читает инструкцию и отмечает выполнение.
+ */
 export function taskSetupParts(t: SetupFields): { label: string; tab: string }[] {
   return [
-    !t.items.some((i) => i.kind !== "info") && {
+    t.review_mode === "manager" &&
+      !t.items.some((i) => i.kind !== "info") && {
       label: "пунктов чек-листа",
       tab: "checklist",
     },
@@ -23,7 +31,7 @@ export function taskMissing(t: SetupFields): string[] {
 
 /** Статус задачи — один для списка и карточки. */
 export function taskStatus(
-  t: Pick<TaskDefinition, "enabled" | "template_id" | "recurrence" | "items">,
+  t: SetupFields & Pick<TaskDefinition, "enabled">,
 ): TaskStatus {
   return t.enabled ? "Работает" : taskMissing(t).length ? "Не настроена" : "Черновик";
 }

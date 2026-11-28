@@ -902,7 +902,7 @@ function DefinitionEditor({
           </p>
           <SwitchRow
             label="Требуется приёмка"
-            description="Выполнение засчитывается после проверки управляющим. Без приёмки — сразу после сдачи отчёта."
+            description="Выполнение засчитывается после проверки управляющим, для этого нужен чек-лист. Без приёмки — сразу, как сотрудник отметит выполнение; чек-лист можно не заводить."
             checked={value.review_mode === "manager"}
             onChange={(required) =>
               set("review_mode", required ? "manager" : "auto")
@@ -1326,6 +1326,7 @@ export function TaskReport({
           </Disclosure>
           )
         )}
+{o.snapshot.items.length > 0 && (
         <ProfileSection title="Отчёт">
           {o.snapshot.items.map((i, index) => (
             <div key={i.id} className="space-y-2 border-b pb-4">
@@ -1402,6 +1403,7 @@ export function TaskReport({
             </div>
           ))}
         </ProfileSection>
+        )}
         {review && (
           <div className="space-y-4">
             <Field label="Замечания">

@@ -743,15 +743,23 @@ input:-webkit-autofill {
      оказываются на baseline первой строки текста, а не парят над. */
   align-items: flex-start;
   gap: 10px;
-  /* Кнопки 20px по середине первой строки абзаца (строка 27px, текст
-     начинается на 1px ниже верха меню): (27 − 20) / 2 + 1 ≈ 5px.
-     Пока правило проигрывало центрированию BN, тут стояло 9px. */
-  padding-top: 5px;
+  /* Кнопки 20px по середине первой строки абзаца: у блока сверху 9px,
+     строка 16 × 1.7 ≈ 27px → центр на 22.6px, кнопке — 22.6 − 10 ≈ 13px.
+     Прежние 5px считались от пункта списка, и у абзаца кнопки висели на
+     8px выше строки (замечание владельца 28.11.2026). */
+  padding-top: 13px;
   transform: translateX(-14px);
 }
 /* H1/H2/H3 имеют heading-padding 22px (см. правило выше) — копируем
    эту цифру в side-menu, плюс небольшой visual offset чтобы кнопки
    стояли по центру первой строки заголовка, а не к её верху. */
+/* Пункты списков: сверху 2px → центр строки на 15.6px, кнопке ≈ 6px. */
+.bn-sheerly .bn-side-menu[data-block-type="bulletListItem"],
+.bn-sheerly .bn-side-menu[data-block-type="numberedListItem"],
+.bn-sheerly .bn-side-menu[data-block-type="checkListItem"],
+.bn-sheerly .bn-side-menu[data-block-type="toggleListItem"] {
+  padding-top: 6px;
+}
 .bn-sheerly .bn-side-menu[data-block-type="heading"][data-level="1"] {
   padding-top: 32px;
 }

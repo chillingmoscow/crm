@@ -821,9 +821,11 @@ function KbTreeItem({
         />
         </span>
 
-        {/* Шеврон справа, как у разделов меню; место держим и у страниц
-            без подстраниц — названия в столбце не прыгают. */}
-        {hasChildren ? (
+        {/* Шеврон справа, как у разделов меню. У страницы без подстраниц
+            места под него нет: названия начинаются слева и не сдвигаются,
+            а пустой хвост справа выглядел как непонятная зона (замечание
+            владельца 28.11.2026). Перетаскивать можно за всю строку. */}
+        {hasChildren && (
           <button
             type="button"
             onClick={toggle}
@@ -835,8 +837,6 @@ function KbTreeItem({
           >
             <ChevronRight className={cn("motion-chevron size-4", isOpen && "rotate-90")} />
           </button>
-        ) : (
-          <span aria-hidden="true" className="size-6 shrink-0" />
         )}
       </div>
 

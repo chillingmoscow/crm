@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   ArrowLeft,
@@ -67,6 +67,10 @@ export function CollectionViewMenu({
   >("root");
   const [nameDraft, setNameDraft] = useState(viewName);
   const [descriptionDraft, setDescriptionDraft] = useState(description);
+  // Esc — отмена: поле теряет фокус при уходе с панели (или когда меню
+  // закрывается), и blur не должен сохранить введённое.
+  const cancelNameRef = useRef(false);
+  const cancelDescriptionRef = useRef(false);
   // Не автофокусим поле переименования на тач-устройствах (иначе всплывает
   // клавиатура). useCoarsePointer корректен синхронно на mount'е (autoFocus
   // применяется только при mount'е).
@@ -110,7 +114,16 @@ export function CollectionViewMenu({
             aria-label="Название вида"
             autoFocus={!coarsePointer}
             onChange={(event) => setNameDraft(event.currentTarget.value)}
-            onBlur={() => onRename(nameDraft)}
+            onFocus={() => {
+              cancelNameRef.current = false;
+            }}
+            onBlur={() => {
+              if (cancelNameRef.current) {
+                cancelNameRef.current = false;
+                return;
+              }
+              onRename(nameDraft);
+            }}
             onKeyDown={(event) => {
               if (event.key === "Enter") {
                 event.preventDefault();
@@ -119,7 +132,11 @@ export function CollectionViewMenu({
               }
               if (event.key === "Escape") {
                 event.preventDefault();
+                cancelNameRef.current = true;
                 setNameDraft(viewName);
+                // blur до ухода с панели: при размонтировании onBlur не
+                // вызывается, и флаг отмены остался бы взведённым.
+                event.currentTarget.blur();
                 setPanel("root");
               }
             }}
@@ -135,11 +152,22 @@ export function CollectionViewMenu({
             onChange={(event) =>
               setDescriptionDraft(event.currentTarget.value)
             }
-            onBlur={() => onChangeDescription(descriptionDraft)}
+            onFocus={() => {
+              cancelDescriptionRef.current = false;
+            }}
+            onBlur={() => {
+              if (cancelDescriptionRef.current) {
+                cancelDescriptionRef.current = false;
+                return;
+              }
+              onChangeDescription(descriptionDraft);
+            }}
             onKeyDown={(event) => {
               if (event.key === "Escape") {
                 event.preventDefault();
+                cancelDescriptionRef.current = true;
                 setDescriptionDraft(description);
+                event.currentTarget.blur();
                 setPanel("root");
               }
               if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {

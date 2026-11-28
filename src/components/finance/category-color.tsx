@@ -3,15 +3,12 @@
 import { Check } from "lucide-react";
 
 import { ColorDot } from "@/components/ui/color-dot";
-import { normalizePaletteColor, PALETTE_COLORS, paletteDot } from "@/lib/palette";
+import { CATEGORY_COLORS, normalizePaletteColor, paletteDot } from "@/lib/palette";
 import { cn } from "@/lib/utils";
 
 const HEX = /^#?[0-9a-f]{6}$/i;
 
-/** Цвета, которые предлагаем статье: яркие, без серого и «по умолчанию». */
-export const CATEGORY_COLORS = PALETTE_COLORS.filter(
-  (color) => !["default", "gray", "brown"].includes(color.name),
-);
+export { CATEGORY_COLORS };
 
 /**
  * Точка цвета статьи. Новые статьи хранят цвет палитры; у статей,
@@ -114,7 +111,11 @@ export function CategoryColorPicker({
           </button>
         ) : null}
       </div>
-      <div className={grid ? "grid grid-cols-7 justify-items-center gap-1" : "flex flex-wrap gap-2 p-0.5"}>
+      <div
+        className={grid ? "grid justify-items-center gap-1" : "flex flex-wrap gap-2 p-0.5"}
+        // В сетке — все цвета одной строкой, столько колонок, сколько цветов.
+        style={grid ? { gridTemplateColumns: `repeat(${CATEGORY_COLORS.length}, minmax(0, 1fr))` } : undefined}
+      >
         {CATEGORY_COLORS.map((color) => {
           const selected = current === color.name;
           return (

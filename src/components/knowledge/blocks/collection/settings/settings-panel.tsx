@@ -133,6 +133,8 @@ export function CollectionSettings({
     useState(viewDescription);
   const [descriptionOpen, setDescriptionOpen] = useState(Boolean(viewDescription));
   const skipViewTitleCommitRef = useRef(false);
+  // Как у названия: blur после Esc не сохраняет введённое описание.
+  const skipViewDescriptionCommitRef = useRef(false);
   const visibleCount = fields.filter((field) =>
     isCollectionFieldVisible(field.id, visibleFieldIds),
   ).length;
@@ -160,6 +162,11 @@ export function CollectionSettings({
   };
 
   const commitViewDescription = (value = viewDescriptionDraft) => {
+    if (skipViewDescriptionCommitRef.current) {
+      skipViewDescriptionCommitRef.current = false;
+      setViewDescriptionDraft(viewDescription);
+      return;
+    }
     const nextDescription = value.trim().slice(0, 280);
     setViewDescriptionDraft(nextDescription);
     onUpdateViewDescription(nextDescription);
@@ -364,6 +371,7 @@ export function CollectionSettings({
             }
             if (event.key === "Escape") {
               event.preventDefault();
+              skipViewDescriptionCommitRef.current = true;
               setViewDescriptionDraft(viewDescription);
               event.currentTarget.blur();
             }

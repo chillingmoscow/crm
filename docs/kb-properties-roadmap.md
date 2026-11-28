@@ -68,7 +68,6 @@ hover показывает текст. Useful для шаблонов: «что 
 
 Линк на другую KB-страницу. Edit — search picker (reuses логику
 [KbMentionMenu](../src/app/(dashboard)/knowledge/_components/kb-mention-menu.tsx)
-или [kb-page-actions.tsx](../src/app/(dashboard)/knowledge/_components/kb-page-actions.tsx)
 search). Display — chip с iconom + title целевой страницы (как
 существующий `kbPageMention`).
 

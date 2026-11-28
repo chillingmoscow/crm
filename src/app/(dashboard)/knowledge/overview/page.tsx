@@ -87,8 +87,8 @@ export default async function KbOverviewPage({
   const timeZone = await getActiveAccountTimezone();
   const today = new Intl.DateTimeFormat("en-CA", { timeZone }).format(new Date());
   const period = parseKbOverviewPeriod(params, today);
-  const window = kbOverviewWindow(period);
-  const previous = kbOverviewWindow(shiftKbOverviewPeriod(period, -1));
+  const window = kbOverviewWindow(period, timeZone);
+  const previous = kbOverviewWindow(shiftKbOverviewPeriod(period, -1), timeZone);
   const view = blocks.pagesView && params.view === "pages" ? "pages" : "overview";
   // Список страниц нужен таблице и строке «не обновлялись полгода» — та
   // ведёт в «По страницам», поэтому показывается только с аналитикой.

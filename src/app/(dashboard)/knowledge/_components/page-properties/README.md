@@ -1,6 +1,6 @@
 # `page-properties/` — Per-type controls and helpers for KbPageProperties
 
-Carved out of `../kb-page-properties.tsx` (started at 2778 lines; now ~1509). The main orchestrator (`KbPageProperties`, `PropertyRow`, `PropertyGroupHeader`, `CollectionScopedPropertyRow`, `PropertyRowDragPreview`, `PropertyValueControl`) lives in the original file. This directory holds the leaf controls (one per `KbPropertyType`) plus shared helpers/chips.
+Carved out of `../kb-page-properties.tsx` (started at 2778 lines; now ~1540). The main orchestrator (`KbPageProperties`, `PropertyRow`, `PropertyGroupHeader`, `CollectionScopedPropertyRow`, `PropertyRowDragPreview`, `PropertyValueControl`) lives in the original file. This directory holds the leaf controls (one per `KbPropertyType`) plus shared helpers/chips.
 
 ## Layout
 
@@ -10,6 +10,10 @@ page-properties/
                                  SAVE_DEBOUNCE_MS, propertyTypeOptions, makeProperty,
                                  getCollectionScope, isPageProperty
   option-chip.tsx                OptionChip + colorNameForOption + resolveOptionColor
+                                 (pill 12/500, StatusBadge recipe via paletteChip)
+  option-editor-popover.tsx      PropertyEditorPopover — «Редактировать» window:
+                                 name/icon/description, type, per-type params,
+                                 option list (dnd), view tiles, Esc = cancel
   controls/
     text-control.tsx             TextValueControl
     url-control.tsx              UrlValueControl + shortenUrlForDisplay
@@ -19,6 +23,15 @@ page-properties/
     rating-control.tsx           RatingValueControl (stars + slider variants)
     unit-picker-items.tsx        UnitPickerItems (currency/mass/volume/piece submenu)
     property-icon-button.tsx     PropertyIconButton (KbIconPickerBody trigger)
+    option-value-picker.tsx      OptionValuePicker — search/pick/create options
+                                 (select + multi-select), orderedOptions
+    option-menu-popover.tsx      OptionMenuPopover — «⋯» of an option: rename,
+                                 description, colour, delete (Esc = cancel)
+    date-control.tsx             DateValueControl — calendar, quick chips,
+                                 time toggle, «Без даты», format
+    date-control-helpers.ts      quickDateISO / split & join date values
+    time-picker.tsx              TimePicker — shared ui TimePicker, compact,
+                                 hideScrollbar
 ```
 
 ## Data flow
@@ -38,7 +51,7 @@ KbPageProperties (kb-page-properties.tsx)
                 ├─ number       → NumberValueControl
                 │                   └─ delegates to RatingValueControl if displayVariant === "rating"
                 ├─ rating       → RatingValueControl
-                ├─ date         → native <input type="date"> (in PropertyValueControl)
+                ├─ date         → DateValueControl (controls/date-control.tsx)
                 └─ checkbox     → <Checkbox>/<Switch> (in PropertyValueControl)
 ```
 
@@ -53,7 +66,7 @@ KbPageProperties (kb-page-properties.tsx)
 
 ## Pure logic lives in `src/lib/`
 
-- `palette.ts` — `PALETTE_COLORS`, `paletteChip`, `paletteDot` (option chip colors)
+- `palette.ts` — `PALETTE_COLORS`, `paletteChip`, `paletteDot`, `CATEGORY_COLORS` (option chip colors)
 - `units/` — `Unit` discriminated union + formatters (`formatWithUnit`, `unitSuffix`)
 - `knowledge/properties.ts` — server actions (`saveKbPageProperties`, `saveKbTemplateProperties`)
 

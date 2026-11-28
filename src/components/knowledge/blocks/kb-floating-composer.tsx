@@ -224,7 +224,7 @@ export function KbFloatingComposer({
             disabled={submitting}
             className={cn(
               "w-full resize-none bg-transparent outline-none",
-              "text-sm text-foreground placeholder:text-muted-foreground",
+              "text-base text-foreground sm:text-sm placeholder:text-muted-foreground",
               "leading-snug py-1",
               "max-h-40 overflow-y-auto",
             )}

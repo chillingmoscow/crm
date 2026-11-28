@@ -20,7 +20,7 @@ import { useSyncExternalStore } from "react";
  *
  * Используется в паре с editor'ом — он PUSH'ит, tree PULL'ит. State
  * шарится через useSyncExternalStore, тот же паттерн что
- * kb-editor-store.ts и kb-sidebar-visibility-store.ts.
+ * kb-sidebar-visibility-store.ts.
  */
 
 export interface KbTreeNodeOverride {

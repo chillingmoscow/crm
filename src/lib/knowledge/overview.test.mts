@@ -88,6 +88,18 @@ test("kbOverviewWindow: неделя — 7 суток с понедельник�
   });
 });
 
+test("kbOverviewWindow: границы — полночь в поясе аккаунта", () => {
+  // Москва UTC+3: понедельник 00:00 по Москве — воскресенье 21:00 UTC.
+  assert.deepEqual(kbOverviewWindow({ kind: "week", start: "2026-11-23" }, "Europe/Moscow"), {
+    sinceISO: "2026-11-22T21:00:00.000Z",
+    untilISO: "2026-11-29T21:00:00.000Z",
+  });
+  assert.deepEqual(kbOverviewWindow({ kind: "month", start: "2026-12" }, "Europe/Moscow"), {
+    sinceISO: "2026-11-30T21:00:00.000Z",
+    untilISO: "2026-12-31T21:00:00.000Z",
+  });
+});
+
 test("kbOverviewNextDisabled: дальше текущего периода не шагаем", () => {
   assert.equal(kbOverviewNextDisabled({ kind: "week", start: "2026-11-23" }, "2026-11-27"), true);
   assert.equal(kbOverviewNextDisabled({ kind: "week", start: "2026-11-16" }, "2026-11-27"), false);

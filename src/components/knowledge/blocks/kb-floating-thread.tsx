@@ -599,7 +599,7 @@ function EditCommentRow({
           disabled={saving}
           className={cn(
             "w-full resize-none bg-background outline-none rounded-md border border-input px-2 py-1.5",
-            "text-sm text-foreground leading-snug",
+            "text-base text-foreground sm:text-sm leading-snug",
             "focus:ring-2 focus:ring-ring focus:ring-offset-0",
           )}
         />
@@ -714,7 +714,7 @@ function ReplyInput({
           disabled={submitting}
           className={cn(
             "flex-1 resize-none bg-transparent outline-none",
-            "text-sm text-foreground placeholder:text-muted-foreground",
+            "text-base text-foreground sm:text-sm placeholder:text-muted-foreground",
             "leading-snug py-1",
             "max-h-[120px] overflow-y-auto",
           )}

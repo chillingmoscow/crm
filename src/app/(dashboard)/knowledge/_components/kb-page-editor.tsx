@@ -1,6 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+
+import { cn } from "@/lib/utils";
+import type { KbPageCommentsInitial } from "@/lib/knowledge/page-comments-initial";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { toast } from "sonner";
@@ -15,7 +18,6 @@ import {
   setCachedSignedUrl,
 } from "@/lib/knowledge/signed-url-cache";
 import { KbIconPicker } from "@/components/knowledge/kb-icon-picker";
-import { setKbEditor } from "@/app/(dashboard)/knowledge/_components/kb-editor-store";
 import { useKbPageViewTracker } from "@/lib/knowledge/use-page-view-tracker";
 import {
   clearKbPageLocalUnlock,
@@ -140,6 +142,8 @@ interface KbPageEditorProps {
    *  audit-info-popover'а. */
   currentUserName?: string | null;
   currentUserAvatarUrl?: string | null;
+  /** Обсуждение страницы с сервера (`loadKbPageCommentsInitial`). */
+  initialComments?: KbPageCommentsInitial | null;
   /** Примерное время чтения в минутах (Sprint D Phase 2 §2.9).
    *  Server-rendered из `kb_pages.plain_text` через
    *  `estimateReadingMinutes`. Рендерим как badge под title-строкой —
@@ -214,6 +218,7 @@ export function KbPageEditor({
   userId = null,
   currentUserName = null,
   currentUserAvatarUrl = null,
+  initialComments = null,
   checkedMentionSlugs = null,
   deletedMentionSlugs = null,
   trashedMentionSlugs = null,
@@ -300,10 +305,27 @@ export function KbPageEditor({
   // без комментариев.
   const hasComments = commentsBundle !== null;
   const shouldRenderProperties = canEditBase || initialProperties.length > 0;
+  const shouldRenderComments = Boolean(accountId && userId);
+
+  // Свойства и обсуждение стоят над текстом и приходят отдельными
+  // кусками кода (dynamic, без SSR). Пока какой-то из них не встал на
+  // место, свойства, обсуждение и текст скрыты (место под ними не
+  // резервируется — скрыто всё ниже заголовка), потом появляются одним
+  // кадром: текст не дёргается вниз (замечание владельца 28.11.2026).
+  // Через 2 с показываем в любом случае — если кусок кода не загрузился.
+  const [propertiesReady, setPropertiesReady] = useState(!shouldRenderProperties);
+  const [commentsReady, setCommentsReady] = useState(!shouldRenderComments);
+  const [revealTimedOut, setRevealTimedOut] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setRevealTimedOut(true), 2000);
+    return () => clearTimeout(timer);
+  }, []);
+  const markPropertiesReady = useCallback(() => setPropertiesReady(true), []);
+  const markCommentsReady = useCallback(() => setCommentsReady(true), []);
+  const bodyReady = (propertiesReady && commentsReady) || revealTimedOut;
   const renderExtras = useCallback(
     (editor: BlockNoteEditorType) => (
       <>
-        <KbEditorRegistrar editor={editor} />
         <KbMentionMenu editor={editor} />
         <KbSideMenuController editable={canEdit} />
         {hasComments && <KbThreadGutterIndicators />}
@@ -383,6 +405,9 @@ export function KbPageEditor({
 
       {afterTitle}
 
+      {/* `contents` — обёртка не меняет раскладку, `invisible` наследуется
+          детьми. См. bodyReady выше. */}
+      <div className={cn("contents", !bodyReady && "invisible")}>
       {/* Properties panel — Notion-style key-value fields, рендерится
           между title и content. Свой save-цикл (saveKbPageProperties),
           не идёт через scheduleSave editor'а — независимый UPDATE
@@ -393,6 +418,7 @@ export function KbPageEditor({
           mode="page"
           initialProperties={initialProperties}
           canEdit={canEdit}
+          onReady={markPropertiesReady}
         />
       )}
 
@@ -410,6 +436,8 @@ export function KbPageEditor({
           currentUserAvatarUrl={currentUserAvatarUrl}
           canComment={canComment}
           canEdit={canEdit}
+          initial={initialComments}
+          onReady={markCommentsReady}
         />
       )}
 
@@ -494,20 +522,7 @@ export function KbPageEditor({
       </KbMentionResolutionProvider>
 
       {afterContent}
+      </div>
     </div>
   );
-}
-
-/** Регистрирует editor instance в module-store на mount + очищает на
- *  unmount. Без этого Undo/Redo кнопки в KB-топбаре не знают, к какому
- *  редактору обращаться (топбар рендерится в server-side слоте, далеко
- *  от editor mount-point). См. kb-editor-store.ts. */
-function KbEditorRegistrar({ editor }: { editor: BlockNoteEditorType }) {
-  useEffect(() => {
-    setKbEditor(editor);
-    return () => {
-      setKbEditor(null);
-    };
-  }, [editor]);
-  return null;
 }

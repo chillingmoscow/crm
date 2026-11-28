@@ -5,8 +5,8 @@
  *   • цвет тинта KB-иконок (kb_pages.icon_color)
  *   • выделение текста / фон в BlockNote (data-text-color / data-background-color
  *     рендерятся в `globals.css` через --palette-{c}-{fg|bg})
- *   • будущие бейджи / теги / аватары (см. follow-up план в
- *     plan-файле — добавление `tone` prop у Badge, avatarPaletteColor хелпер).
+ *   • чипы вариантов свойств (`paletteChip`, рецепт StatusBadge) и выбор
+ *     цвета (`CATEGORY_COLORS`).
  *
  * Имена 1-в-1 совпадают с BlockNote-ом (см. kb-color-picker-item.tsx → `COLORS`).
  *
@@ -192,3 +192,9 @@ export function paletteChip(c: string | null | undefined): string {
 /** Свотч-грид для option-color picker (sheerly.pen → mzhv4):
  *  2×5, `default` первым. Тот же порядок, что PALETTE_COLORS. */
 export const PALETTE_GRID = PALETTE_COLORS;
+
+/** Цвета, которые предлагаем выбрать (статья, значок): яркие, без серого,
+ *  коричневого и «по умолчанию» (DS «Выбор цвета»). */
+export const CATEGORY_COLORS = PALETTE_COLORS.filter(
+  (color) => !["default", "gray", "brown"].includes(color.name),
+);

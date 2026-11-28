@@ -65,7 +65,7 @@ export default async function KbPageStatsPage({
   const period = parseKbOverviewPeriod(query, today);
   const { rows: viewers, error } = await getKbAnalyticsPageViewers({
     pageId: page.id,
-    window: kbOverviewWindow(period),
+    window: kbOverviewWindow(period, timeZone),
   });
   const title = page.title?.trim() || "Без названия";
   const totalSeconds = viewers.reduce((sum, v) => sum + v.total_seconds, 0);

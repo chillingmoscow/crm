@@ -17,18 +17,19 @@ import { useCoarsePointer } from "@/hooks/use-mobile";
 
 /**
  * Custom slash-меню для KB. Отличается от дефолтного `SuggestionMenu`
- * BlockNote'а двумя пунктами:
+ * BlockNote'а тремя пунктами:
  *
  *   1. **Скрывает description** в основном списке (CSS под уникальный
- *      wrapper-класс `.kb-slash-menu`). Это применяется ТОЛЬКО к
- *      slash-меню; `@`-меню упоминаний рендерится отдельным
- *      `SuggestionMenuController`'ом и сохраняет subtext «Страница» /
- *      «Сотрудник» нужный для дизамбигуации.
+ *      wrapper-класс `.kb-slash-menu`). Меню «@» — своё (KbMentionList в
+ *      kb-mention-menu.tsx), с подписями групп вместо второй строки.
  *
  *   2. **Hover-hold tooltip 1.2 сек** — после удержания курсора на
  *      пункте показывает popover справа с title + description (подсказка
  *      по дизайну sheerly.pen frame 04c · MIEVl). На mouse-leave
  *      сразу закрывается; следующий `enter` стартует таймер заново.
+ *
+ *   3. **На тач-экранах** пункты — обычный `SuggestionMenu.Item` BN без
+ *      обёртки с подсказкой (обёртка ломала тап на iOS).
  *
  * Реиспользует `Components.SuggestionMenu.Item/Label/Root` из BN-shadcn
  * — keyboard-nav, scroll-into-view selected, ARIA-роли остаются работать

@@ -4,6 +4,8 @@
  * Чистые функции — без React и базы.
  */
 
+import { dayStartInZone } from "../format/zoned-day.ts";
+
 export type KbOverviewBlocks = {
   /** Показатели (MetricStrip): аналитика. */
   metrics: boolean;
@@ -93,19 +95,28 @@ export function shiftKbOverviewPeriod(period: KbOverviewPeriod, delta: number): 
   };
 }
 
-/** Окно агрегации `[since, until)` по UTC — как остальная аналитика базы. */
-export function kbOverviewWindow(period: KbOverviewPeriod): { sinceISO: string; untilISO: string } {
+/** Окно агрегации `[since, until)` — от полуночи первого дня до полуночи следующего за
+ *  последним, в поясе аккаунта: чтение в понедельник в 01:00 по Москве
+ *  попадает в новую неделю, а не в прошлую (как было при границах по UTC). */
+export function kbOverviewWindow(
+  period: KbOverviewPeriod,
+  timeZone = "UTC",
+): { sinceISO: string; untilISO: string } {
+  const day = (d: Date) => d.toISOString().slice(0, 10);
   if (period.kind === "week") {
     const since = utcDate(period.start);
     return {
-      sinceISO: since.toISOString(),
-      untilISO: new Date(since.getTime() + 7 * DAY_MS).toISOString(),
+      sinceISO: dayStartInZone(day(since), timeZone),
+      untilISO: dayStartInZone(day(new Date(since.getTime() + 7 * DAY_MS)), timeZone),
     };
   }
   const since = monthStart(period.start);
   return {
-    sinceISO: since.toISOString(),
-    untilISO: new Date(Date.UTC(since.getUTCFullYear(), since.getUTCMonth() + 1, 1)).toISOString(),
+    sinceISO: dayStartInZone(day(since), timeZone),
+    untilISO: dayStartInZone(
+      day(new Date(Date.UTC(since.getUTCFullYear(), since.getUTCMonth() + 1, 1))),
+      timeZone,
+    ),
   };
 }
 

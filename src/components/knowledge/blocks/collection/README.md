@@ -1,6 +1,6 @@
 # `collection/` — KB Collection block components
 
-Carved out of `src/components/knowledge/blocks/kb-collection-block.tsx` (started at 7019 lines; now ~2577). This directory holds every sub-component the Collection block renders. The main block file at `../kb-collection-block.tsx` keeps only the orchestrator (`KbCollectionBlock` — owns items, views, schema, save pipeline) and the BlockNote spec.
+Carved out of `src/components/knowledge/blocks/kb-collection-block.tsx` (started at 7019 lines; now ~2659). This directory holds every sub-component the Collection block renders. The main block file at `../kb-collection-block.tsx` keeps only the orchestrator (`KbCollectionBlock` — owns items, views, schema, save pipeline) and the BlockNote spec.
 
 ## Layout
 

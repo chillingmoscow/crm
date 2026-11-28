@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { KB_ICON_PICKER_COLUMNS, KB_PICKER_ICON_GROUPS, KB_ICONS, isKbLucideIcon } from "./icons.ts";
-import { PALETTE_COLORS } from "../palette.ts";
+import { CATEGORY_COLORS } from "../palette.ts";
 
 /**
  * Окно выбора значка без пустых хвостов (замечание владельца 28.11.2026):
@@ -15,9 +15,8 @@ test("every picker group fills whole rows", () => {
 });
 
 test("colours offered in the picker fill exactly one row", () => {
-  // Тот же набор, что CATEGORY_COLORS (без «по умолчанию», серого, коричневого).
-  const offered = PALETTE_COLORS.filter((c) => !["default", "gray", "brown"].includes(c.name));
-  assert.equal(offered.length, KB_ICON_PICKER_COLUMNS);
+  // Тот самый набор, что рисует выбор цвета в окне.
+  assert.equal(CATEGORY_COLORS.length, KB_ICON_PICKER_COLUMNS);
 });
 
 test("icons hidden from the picker still render on existing pages", () => {

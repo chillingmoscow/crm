@@ -83,6 +83,7 @@ import {
   makeProperty,
 } from "./page-properties/helpers";
 import { PropertyEditorPopover } from "./page-properties/option-editor-popover";
+import { errorText } from "@/lib/actions/error-text";
 
 interface KbPagePropertiesProps {
   /** Идентификатор страницы или шаблона. */
@@ -93,6 +94,9 @@ interface KbPagePropertiesProps {
   canEdit: boolean;
   /** В preview-режимах можно скрыть нижний CTA-блок полностью. */
   showAddButton?: boolean;
+  /** Зовётся после первой отрисовки: редактор страницы ждёт его, чтобы
+   *  показать свойства, обсуждение и текст одним кадром. */
+  onReady?: () => void;
 }
 
 
@@ -102,8 +106,13 @@ export function KbPageProperties({
   initialProperties,
   canEdit,
   showAddButton = true,
+  onReady,
 }: KbPagePropertiesProps) {
   const [properties, setProperties] = useState<KbProperty[]>(initialProperties);
+  useEffect(() => {
+    onReady?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- один раз, после первой отрисовки
+  }, []);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedRef = useRef<string>(JSON.stringify(initialProperties));
   // Latest payload scheduled for save but not yet flushed. Cleared by
@@ -169,7 +178,7 @@ export function KbPageProperties({
         : { templateId: targetId, properties: next };
     const { error } = await action(payload as never);
     if (error) {
-      toast.error(`Не удалось сохранить свойства: ${error}`);
+      toast.error(errorText(new Error(error), "Не удалось сохранить свойства"));
       return;
     }
     lastSavedRef.current = serialized;

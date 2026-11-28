@@ -32,6 +32,8 @@ import {
   getKbRequiredReadingOverview,
 } from "@/lib/knowledge/required-reading";
 import { estimateReadingMinutes } from "@/lib/knowledge/reading-time";
+import { getActiveAccountTimezone } from "@/lib/settings/account";
+import { loadKbPageCommentsInitial } from "@/lib/knowledge/page-comments-initial";
 import { kbPropertiesSchema } from "@/lib/knowledge/schemas";
 import type {
   KbBlock,
@@ -189,7 +191,7 @@ export default async function KbPageView({ params }: PageProps) {
   // Руководителю с правом обязательного чтения — «Прочитали N из M» на
   // плашке (вместо пункта «Кто прочитал» в меню ⋯). Оба запроса зависят
   // только от readStatus — идут параллельно.
-  const [accumulatedActiveSeconds, readingStats] = await Promise.all([
+  const [accumulatedActiveSeconds, readingStats, accountTimeZone, initialComments] = await Promise.all([
     readStatus.required && !readStatus.myReadAt
       ? getKbMyActiveSeconds(row.id)
       : Promise.resolve(0),
@@ -210,6 +212,12 @@ export default async function KbPageView({ params }: PageProps) {
             : null,
         )
       : Promise.resolve(null),
+    // Дата «Прочитано 27 ноября» — в поясе аккаунта и на сервере, и в
+    // браузере, иначе ночная отметка давала разную дату и ошибку гидратации.
+    readStatus.required ? getActiveAccountTimezone() : Promise.resolve(undefined),
+    // Обсуждение стоит над текстом — приходит вместе со страницей, чтобы
+    // текст не сдвигался, когда браузер догрузит комментарии.
+    loadKbPageCommentsInitial(row.id),
   ]);
 
   const chain = pageViewData?.breadcrumbs ?? [];
@@ -419,6 +427,7 @@ export default async function KbPageView({ params }: PageProps) {
                 canSeeReaders={hasManageRequiredReading}
                 required={readStatus.required}
                 initialReadAt={readStatus.myReadAt}
+                timeZone={accountTimeZone}
                 needsReread={readStatus.needsReread}
                 accumulatedActiveSeconds={accumulatedActiveSeconds}
                 readingMinutes={
@@ -452,6 +461,7 @@ export default async function KbPageView({ params }: PageProps) {
             userId={currentUserId}
             currentUserName={currentUserProfile?.name ?? null}
             currentUserAvatarUrl={currentUserProfile?.avatarUrl ?? null}
+            initialComments={initialComments}
             authorName={createdByName}
             authorAvatarUrl={createdByAvatarUrl}
             readingMinutes={

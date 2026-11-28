@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, type ReactNode } from "react";
+import { createContext, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 import type { BlockNoteEditor } from "@blocknote/core";
 import {
   SuggestionMenuController,
@@ -25,21 +25,27 @@ interface KbMentionMenuProps {
  * action `searchKbMentions`, который параллельно ищет страницы (FTS)
  * и сотрудников активного аккаунта (substring LIKE).
  *
- * Click-handler заменяет `@<query>` на inline-link:
- *   - Страница → `/knowledge/<slug>` с заголовком (и emoji-иконкой
- *     страницы, если есть).
- *   - Человек → `/people/staff/<userId>` с `@Имя Фамилия`.
+ * Выбор пункта заменяет `@<query>` на атомарный чип:
+ *   - Страница → `kbPageMention` (значок и название страницы).
+ *   - Человек → `kbStaffMention` (мини-аватар и имя).
  *
- * Notification-логика по @-mentions сейчас отсутствует — это просто
- * inline-ссылка. Добавим оповещения отдельной итерацией, когда
- * доделаем notifications-сервис под KB.
+ * Упомянутый в тексте коллега получает уведомление `kb.mention_in_page`
+ * (сервер находит новые упоминания при сохранении, см. pages.ts и
+ * mention-extract.ts).
  */
 export function KbMentionMenu({ editor }: KbMentionMenuProps) {
+  // Поиск упал — в списке строка об ошибке, а не «Ничего не найдено».
+  const [failed, setFailed] = useState(false);
+  // Ответ на устаревший запрос (по «а», когда уже ищут «аб») флаг не меняет.
+  const requestSeqRef = useRef(0);
   return (
+    <KbMentionFailedContext.Provider value={failed}>
     <SuggestionMenuController
       triggerCharacter="@"
       getItems={async (query) => {
-        const { items } = await searchKbMentions(query);
+        const seq = ++requestSeqRef.current;
+        const { items, error } = await searchKbMentions(query);
+        if (seq === requestSeqRef.current) setFailed(Boolean(error));
         // Группы подряд: сначала страницы, потом сотрудники.
         const ordered = [
           ...items.filter((it) => it.kind === "page"),
@@ -49,8 +55,11 @@ export function KbMentionMenu({ editor }: KbMentionMenuProps) {
       }}
       suggestionMenuComponent={KbMentionList}
     />
+    </KbMentionFailedContext.Provider>
   );
 }
+
+const KbMentionFailedContext = createContext(false);
 
 /**
  * Список «@» как меню «/» (DS «Меню редактора»): подписи групп 12 / 500
@@ -62,6 +71,7 @@ export function KbMentionMenu({ editor }: KbMentionMenuProps) {
 function KbMentionList(props: SuggestionMenuProps<DefaultReactSuggestionItem>) {
   const Components = useComponentsContext()!;
   const { items, selectedIndex, onItemClick, loadingState } = props;
+  const failed = useContext(KbMentionFailedContext);
 
   const rendered = useMemo<ReactNode[]>(() => {
     let group: string | undefined;
@@ -105,7 +115,7 @@ function KbMentionList(props: SuggestionMenuProps<DefaultReactSuggestionItem>) {
       )}
       {items.length === 0 && loadingState === "loaded" && (
         <Components.SuggestionMenu.EmptyItem className="bn-suggestion-menu-item">
-          Ничего не найдено
+          {failed ? "Не удалось выполнить поиск. Попробуйте ещё раз" : "Ничего не найдено"}
         </Components.SuggestionMenu.EmptyItem>
       )}
     </Components.SuggestionMenu.Root>

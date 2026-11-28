@@ -26,7 +26,7 @@ const EmojiPicker = dynamic(() => import("emoji-picker-react"), {
    `<KbEmojiPickerOverlay>` поверх viewport'а, инсертит эмодзи в editor
    через `editor.insertInlineContent` и сам себя закрывает.
 
-   Хранится в module-store по той же причине, что и kb-editor-store.ts —
+   Хранится в module-store (как другие сторы базы знаний) —
    slash-item исполняется в momentary callback'е, а overlay живёт как
    персистентный компонент в дереве редактора. */
 

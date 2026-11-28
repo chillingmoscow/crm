@@ -1,6 +1,6 @@
 # `gallery/` — KB Gallery block components
 
-Carved out of `src/components/knowledge/blocks/kb-gallery-block.tsx` (started at 1374 lines; now ~843). This directory holds the sub-components rendered by the main `KbGalleryBlock` orchestrator. The orchestrator stays in `../kb-gallery-block.tsx` and owns drag/drop reordering of the whole list, upload pipeline, lightbox state, and the BlockNote spec.
+Carved out of `src/components/knowledge/blocks/kb-gallery-block.tsx` (started at 1374 lines; now ~826). This directory holds the sub-components rendered by the main `KbGalleryBlock` orchestrator. The orchestrator stays in `../kb-gallery-block.tsx` and owns drag/drop reordering of the whole list, upload pipeline, lightbox state, and the BlockNote spec.
 
 ## Layout
 

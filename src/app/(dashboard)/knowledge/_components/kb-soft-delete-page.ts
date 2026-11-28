@@ -4,6 +4,7 @@ import type { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import { softDeleteKbPage, restoreKbPage } from "@/lib/knowledge/pages";
+import { errorText } from "@/lib/actions/error-text";
 
 type Router = ReturnType<typeof useRouter>;
 
@@ -32,7 +33,7 @@ export async function softDeletePageWithUndo({
 }): Promise<void> {
   const { error } = await softDeleteKbPage(pageId);
   if (error) {
-    toast.error(`Не удалось удалить: ${error}`);
+    toast.error(errorText(new Error(error), "Не удалось переместить страницу в корзину"));
     return;
   }
 
@@ -51,7 +52,7 @@ export async function softDeletePageWithUndo({
       onClick: async () => {
         const { error: restoreError } = await restoreKbPage(pageId);
         if (restoreError) {
-          toast.error(`Не удалось восстановить: ${restoreError}`);
+          toast.error(errorText(new Error(restoreError), "Не удалось восстановить страницу"));
           return;
         }
         toast.success("Страница восстановлена", { description: `«${title}»` });

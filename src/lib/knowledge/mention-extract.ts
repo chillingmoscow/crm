@@ -1,7 +1,8 @@
 import type { KbBlock, KbInlineContent } from "@/types/knowledge";
 
-/** UUID-pattern из href'а сотрудника `/people/staff/<uuid>` — формат
- *  inline-link'а, который вставляет KbMentionMenu при выборе человека. */
+/** UUID-pattern из href'а сотрудника `/people/staff/<uuid>` — старый формат
+ *  упоминания (inline-link). Сейчас KbMentionMenu вставляет чип
+ *  `kbStaffMention`; ссылки остаются в старых документах. */
 const STAFF_HREF_RE =
   /^\/people\/staff\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
 
@@ -13,9 +14,9 @@ const UUID_RE =
  *  toggle / list-nesting) и inline-content рекурсивно (link.content
  *  тоже массив inline'ов).
  *
- *  @-mention человека рендерится как inline `link` с `href =
- *  /people/staff/<uuid>` (см. KbMentionMenu.buildItem). На этом
- *  pattern и завязываемся.
+ *  @-mention человека — чип `kbStaffMention` (props.userId, см.
+ *  KbMentionMenu.buildItem); в старых документах — inline `link` с
+ *  `href = /people/staff/<uuid>`. Учитываем оба формата.
  *
  *  Sprint D Phase 4b: используется в `saveKbPage` для пуша notifications
  *  через RPC `kb_emit_page_mentions`. Pure-utility, без auth/RPC

@@ -11,7 +11,7 @@ const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
 const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0"));
 
 /** Shared styled HH:mm control, including the compact knowledge property view. */
-export function TimePicker({ value, onChange, id, label, className, clearable = true, disabled = false, "aria-describedby": ariaDescribedBy, "aria-invalid": invalid }: {
+export function TimePicker({ value, onChange, id, label, className, clearable = true, disabled = false, hideScrollbar = false, "aria-describedby": ariaDescribedBy, "aria-invalid": invalid }: {
   value: string;
   onChange: (value: string) => void;
   id?: string;
@@ -20,6 +20,10 @@ export function TimePicker({ value, onChange, id, label, className, clearable = 
   className?: string;
   clearable?: boolean;
   disabled?: boolean;
+  /** Колонки без полосы прокрутки (свойство «Дата» в базе знаний, замечание
+   *  владельца 28.11.2026). По умолчанию тонкая полоса остаётся: на
+   *  компьютере она подсказывает, что список часов длиннее видимого. */
+  hideScrollbar?: boolean;
   /** Связь с подсказкой/ошибкой из `<Field>`; как у DatePicker, ошибка рисуется через `data-invalid`, `aria-required` не рендерится. */
   "aria-describedby"?: string;
   "aria-invalid"?: boolean;
@@ -44,8 +48,8 @@ export function TimePicker({ value, onChange, id, label, className, clearable = 
       </PopoverTrigger>
       <PopoverContent portalContainer={trigger.current?.closest<HTMLElement>('[role="dialog"]')} align="start" sideOffset={6} className="w-auto p-2">
         <div className="flex gap-2">
-          <TimeColumn label="Часы" items={HOURS} selected={value ? hh : undefined} onSelect={(h) => onChange(`${h}:${mm}`)} />
-          <TimeColumn label="Минуты" items={MINUTES} selected={value ? mm : undefined} onSelect={(m) => onChange(`${hh}:${m}`)} />
+          <TimeColumn label="Часы" items={HOURS} selected={value ? hh : undefined} onSelect={(h) => onChange(`${h}:${mm}`)} hideScrollbar={hideScrollbar} />
+          <TimeColumn label="Минуты" items={MINUTES} selected={value ? mm : undefined} onSelect={(m) => onChange(`${hh}:${m}`)} hideScrollbar={hideScrollbar} />
         </div>
         <div className="mt-2 flex items-center justify-end gap-1 border-t pt-2">
           {clearable && value && <Button variant="ghost" size="sm" onClick={() => { onChange(""); setOpen(false); }}>Очистить</Button>}
@@ -55,13 +59,13 @@ export function TimePicker({ value, onChange, id, label, className, clearable = 
     </Popover>
   );
 }
-function TimeColumn({ label, items, selected, onSelect }: { label: string; items: string[]; selected?: string; onSelect: (value: string) => void }) {
+function TimeColumn({ label, items, selected, onSelect, hideScrollbar = false }: { label: string; items: string[]; selected?: string; onSelect: (value: string) => void; hideScrollbar?: boolean }) {
   const selectedRef = useRef<HTMLButtonElement | null>(null);
   useEffect(() => { selectedRef.current?.scrollIntoView({ block: "center" }); }, []);
   return (
     <div className="min-w-0">
       <p className="mb-1 text-center text-xs text-muted-foreground">{label}</p>
-      <div role="group" aria-label={label} className="flex max-h-52 touch-pan-y flex-col gap-0.5 overflow-y-auto overscroll-y-contain px-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div role="group" aria-label={label} className={cn("flex max-h-52 touch-pan-y flex-col gap-0.5 overflow-y-auto overscroll-y-contain px-0.5 [scrollbar-width:thin]", hideScrollbar && "[scrollbar-width:none] [&::-webkit-scrollbar]:hidden")}>
         {items.map((item) => <button key={item} ref={item === selected ? selectedRef : undefined}
           type="button" aria-label={`${label}: ${item}`} aria-pressed={item === selected} onClick={() => onSelect(item)}
           className={cn("h-8 w-14 shrink-0 rounded-md text-sm tabular-nums outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring", item === selected ? "bg-brand text-white" : "hover:bg-accent")}>

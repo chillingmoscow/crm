@@ -11,6 +11,7 @@ import {
   type PageComment,
 } from "@/lib/knowledge/page-comments";
 import { resolveKbUsers } from "@/lib/knowledge/comments-store";
+import type { KbPageCommentsInitial } from "@/lib/knowledge/page-comments-initial";
 import { PageCommentComposer } from "./page-comment-composer";
 import { PageCommentItem } from "./page-comment-item";
 
@@ -25,6 +26,13 @@ interface KbPageCommentsProps {
   canComment: boolean;
   /** kb.edit_any_page — admin-операции (delete чужих). Reserved.  */
   canEdit: boolean;
+  /** Комментарии и авторы с сервера (`loadKbPageCommentsInitial`): обсуждение
+   *  рисуется сразу, без запроса после показа. null — грузим сами. */
+  initial?: KbPageCommentsInitial | null;
+  /** Зовётся один раз, когда обсуждение стоит на своём месте (данные есть
+   *  или загрузились). Редактор ждёт его, чтобы показать свойства,
+   *  обсуждение и текст одним кадром — без сдвига текста вниз. */
+  onReady?: () => void;
 }
 
 /** Минимальные user-данные для рендера автора. Получаем через
@@ -58,15 +66,19 @@ export function KbPageComments({
   currentUserAvatarUrl,
   canComment,
   canEdit,
+  initial = null,
+  onReady,
 }: KbPageCommentsProps) {
-  const [comments, setComments] = useState<PageComment[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [users, setUsers] = useState<Map<string, ResolvedUser>>(new Map());
+  const [comments, setComments] = useState<PageComment[]>(() => initial?.comments ?? []);
+  const [loading, setLoading] = useState(initial === null);
+  const [users, setUsers] = useState<Map<string, ResolvedUser>>(
+    () => new Map((initial?.users ?? []).map((u) => [u.id, u])),
+  );
 
   // Comment IDs, которые сами что-то с ними сделали (insert / update /
   // delete) — игнорим self-broadcast.
   const localCommentIds = useRef<Set<string>>(new Set());
-  const usersRef = useRef<Map<string, ResolvedUser>>(new Map());
+  const usersRef = useRef<Map<string, ResolvedUser>>(users);
 
   // Resolve авторов для всех уникальных author_id в comments. Кэшируем,
   // чтобы каждый realtime-update не триггерил повторный fetch.
@@ -94,8 +106,18 @@ export function KbPageComments({
     });
   }, []);
 
-  // Initial load.
+  // Готовность — когда данные на месте (сразу, если пришли с сервера).
+  const readyRef = useRef(false);
   useEffect(() => {
+    if (loading || readyRef.current) return;
+    readyRef.current = true;
+    onReady?.();
+  }, [loading, onReady]);
+
+  // Initial load — только если сервер данных не дал.
+  const hasInitial = initial !== null;
+  useEffect(() => {
+    if (hasInitial) return;
     let cancelled = false;
     setLoading(true);
     fetchPageComments(pageId)
@@ -111,7 +133,7 @@ export function KbPageComments({
     return () => {
       cancelled = true;
     };
-  }, [pageId, resolveMissingUsers]);
+  }, [pageId, resolveMissingUsers, hasInitial]);
 
   // Realtime subscription. Filter по page_id — RLS на kb_comments
   // дополнительно фильтрует по account / view_pages.

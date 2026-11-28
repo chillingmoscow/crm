@@ -15,9 +15,6 @@ import {
   RefreshCw,
   SearchX,
   Target,
-  MoreHorizontal,
-  Percent,
-  CalendarRange,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -76,8 +73,6 @@ import {
 } from "./actions";
 import { StatisticsChart } from "./statistics-chart";
 import { MonthPlanDrawer } from "./_components/month-plan-drawer";
-import { PriceChangesDrawer } from "./_components/price-changes-drawer";
-import { SeasonalityDrawer } from "./_components/seasonality-drawer";
 import { loadPlanSummaryAction } from "./plan-actions";
 
 const labels: Record<string, string> = {
@@ -231,7 +226,6 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
   const can = (p: string) => data.permissions.includes(`sales.${p}_shifts`);
   const [plans, setPlans] = useState<Map<string, { turnover: number | null; alcoholShare: number | null }>>(new Map());
   const [planMonth, setPlanMonth] = useState<string | null>(null);
-  const [extra, setExtra] = useState<"prices" | "season" | null>(null);
   const reloadPlans = () =>
     loadPlanSummaryAction().then(unwrapAction)
       .then((list) => setPlans(new Map(list.map((p) => [p.month.slice(0, 7), p]))))
@@ -622,23 +616,10 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
             primaryActions={
               <>
                 {source === "native" && (
-                  <>
-                    <Button size="sm" variant="outline" onClick={() => setPlanMonth(currentMonth)}>
-                      <Target className="size-4" />
-                      План месяца
-                    </Button>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button size="sm" variant="outline" className="w-9 px-0" aria-label="Ещё" data-tip="Ещё">
-                          <MoreHorizontal className="size-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-56">
-                        <DropdownMenuItem onSelect={() => setExtra("prices")}><Percent className="size-4" />Изменения цен</DropdownMenuItem>
-                        <DropdownMenuItem onSelect={() => setExtra("season")}><CalendarRange className="size-4" />Сезонность</DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </>
+                  <Button size="sm" variant="outline" onClick={() => setPlanMonth(currentMonth)}>
+                    <Target className="size-4" />
+                    План продаж
+                  </Button>
                 )}
                 {reportsButton}
               </>
@@ -787,8 +768,6 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
         currentMonth={currentMonth}
         onSaved={() => void reloadPlans()}
       />
-      <PriceChangesDrawer open={extra === "prices"} onOpenChange={(v) => { if (!v) setExtra(null); }} month={currentMonth} onSaved={() => undefined} />
-      <SeasonalityDrawer open={extra === "season"} onOpenChange={(v) => { if (!v) setExtra(null); }} month={currentMonth} onSaved={() => undefined} />
       <EditDrawer
         open={!!detail}
         onOpenChange={(open) => !open && setDetail(null)}

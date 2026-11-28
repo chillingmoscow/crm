@@ -15,7 +15,6 @@ import {
   Database,
   Type as TypeIcon,
   Pencil,
-  ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -1135,6 +1134,7 @@ function PropertyRow({
 }: PropertyRowProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
+  const pendingEditRef = useRef(false);
 
   // Sortable: ref + transforms + drag-listeners. Listeners прицепляем
   // ТОЛЬКО к grip-handle (не к <li>) — иначе клик/select на name/value
@@ -1219,28 +1219,38 @@ function PropertyRow({
             <DropdownMenuTrigger asChild>
               <span className="pointer-events-none absolute left-0 top-1/2 size-px" aria-hidden />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="min-w-[180px]">
+            <DropdownMenuContent
+              align="start"
+              className="w-56"
+              // Окно редактирования открываем, когда меню уже закрылось:
+              // открытое раньше, оно ловило уход фокуса из снимаемого меню
+              // как «щелчок мимо» и закрывалось через долю секунды.
+              onCloseAutoFocus={(event) => {
+                if (!pendingEditRef.current) return;
+                pendingEditRef.current = false;
+                event.preventDefault();
+                setEditorOpen(true);
+              }}
+            >
               <DropdownMenuItem
-                onSelect={(e) => {
-                  e.preventDefault();
-                  setMenuOpen(false);
-                  setEditorOpen(true);
+                className="gap-2"
+                onSelect={() => {
+                  pendingEditRef.current = true;
                 }}
               >
-                <Pencil className="size-3.5 text-muted-foreground" />
+                <Pencil className="size-4 shrink-0" />
                 Редактировать
-                <ChevronRight className="ml-auto size-3.5 text-muted-foreground/60" />
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={onDuplicate}>
-                <KB_PROPERTY_UI_ICONS.duplicate className="size-3.5 text-muted-foreground" />
+              <DropdownMenuItem className="gap-2" onSelect={onDuplicate}>
+                <KB_PROPERTY_UI_ICONS.duplicate className="size-4 shrink-0" />
                 Дублировать
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                className="text-destructive focus:text-destructive"
+                className="gap-2 text-destructive focus:text-destructive"
                 onSelect={onRemove}
               >
-                <KB_PROPERTY_UI_ICONS.delete className="size-3.5" />
+                <KB_PROPERTY_UI_ICONS.delete className="size-4 shrink-0" />
                 Удалить
               </DropdownMenuItem>
             </DropdownMenuContent>

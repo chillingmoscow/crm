@@ -101,7 +101,7 @@ export function DateValueControl({
       <PopoverContent
         align="start"
         sideOffset={6}
-        className="w-auto p-3 rounded-xl"
+        className="w-auto p-3"
       >
         <div className="flex flex-wrap items-center gap-1.5 pb-2">
           {QUICK.map((q) => (

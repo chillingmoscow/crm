@@ -17,6 +17,7 @@ import type { KbPropertyColor } from "@/types/knowledge";
 
 import { OptionChip } from "../option-chip";
 import { OptionMenuPopover } from "./option-menu-popover";
+import { cn } from "@/lib/utils";
 
 export type OptionSort = "manual" | "alpha" | "alpha-desc";
 
@@ -79,6 +80,13 @@ export function OptionValuePicker({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
 
+  // Закрытие из кода не вызывает onOpenChange — поиск сбрасываем сами,
+  // иначе при следующем открытии в поле оставался прошлый запрос.
+  const close = () => {
+    setOpen(false);
+    setQuery("");
+  };
+
   const selectedSet = useMemo(() => new Set(value), [value]);
   const ordered = useMemo(
     () => orderedOptions(options, optionSort),
@@ -102,7 +110,7 @@ export function OptionValuePicker({
       setQuery("");
     } else {
       onChange([option]);
-      setOpen(false);
+      close();
     }
   };
 
@@ -114,7 +122,7 @@ export function OptionValuePicker({
       setQuery("");
     } else {
       onChange([q]);
-      setOpen(false);
+      close();
     }
   };
 
@@ -192,9 +200,11 @@ export function OptionValuePicker({
       <PopoverContent
         align="start"
         sideOffset={4}
-        className="w-[260px] overflow-hidden rounded-xl p-0"
+        // Список выбора по DS: радиус окна — общий (10), без заголовка
+        // внутри списка; поле подсказывает, что Enter создаёт вариант.
+        className="w-64 overflow-hidden p-0"
       >
-        <div className="border-b border-border px-2.5 py-2">
+        <div className="border-b border-border px-3 py-2">
           <input
             autoFocus
             value={query}
@@ -205,16 +215,13 @@ export function OptionValuePicker({
                 create();
               }
             }}
-            placeholder="Поиск варианта…"
-            aria-label="Поиск варианта"
-            className="w-full bg-transparent text-[13px] outline-none
-                       placeholder:text-muted-foreground/50"
+            placeholder="Найти или создать вариант"
+            aria-label="Найти или создать вариант"
+            className="w-full bg-transparent text-sm outline-none
+                       placeholder:text-muted-foreground"
           />
         </div>
         <div className="max-h-[260px] overflow-y-auto p-1">
-          <div className="px-2 py-1 text-xs font-medium text-muted-foreground">
-            Выберите вариант или создайте
-          </div>
           {filtered.map((o) => {
             const checked = selectedSet.has(o);
             const desc = optionDescriptions?.[o]?.trim();
@@ -222,14 +229,18 @@ export function OptionValuePicker({
             return (
               <div
                 key={o}
-                className="group/opt flex items-center gap-1 rounded-md pr-1
-                           transition-colors hover:bg-accent"
+                className={cn(
+                  "group/opt flex items-center gap-1 rounded-md pr-1 transition-colors hover:bg-accent",
+                  // Выбранный — подложка и галочка справа (DS «Выпадающий
+                  // список вариантов»).
+                  checked && "bg-accent",
+                )}
               >
                 <button
                   type="button"
                   onClick={() => pick(o)}
                   className="flex min-w-0 flex-1 items-center gap-2 rounded-md
-                             px-2 py-1 text-left"
+                             px-2 py-1.5 text-left"
                 >
                   {desc ? (
                     <Tooltip>
@@ -257,7 +268,7 @@ export function OptionValuePicker({
                     chip
                   )}
                   {checked && (
-                    <Check className="ml-auto size-3.5 shrink-0 text-muted-foreground/60" />
+                    <Check className="ml-auto size-3.5 shrink-0" />
                   )}
                 </button>
                 {canManage && (
@@ -279,7 +290,7 @@ export function OptionValuePicker({
               type="button"
               onClick={create}
               className="flex w-full items-center gap-2 rounded-md px-2 py-1.5
-                         text-left text-[13px] transition-colors hover:bg-accent"
+                         text-left text-sm transition-colors hover:bg-accent"
             >
               <Plus className="size-3.5 shrink-0 text-muted-foreground" />
               <span className="text-muted-foreground">Создать</span>
@@ -287,7 +298,7 @@ export function OptionValuePicker({
             </button>
           )}
           {filtered.length === 0 && !canCreate && (
-            <div className="px-2 py-2 text-xs text-muted-foreground">
+            <div className="px-2 py-2 text-[13px] text-muted-foreground">
               Ничего не найдено
             </div>
           )}

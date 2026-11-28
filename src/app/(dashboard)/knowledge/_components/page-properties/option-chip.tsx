@@ -45,7 +45,7 @@ export function OptionChip({
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded px-1.5 py-0.5 text-[12.5px] font-medium leading-tight max-w-full",
+        "inline-flex items-center rounded-md px-1.5 py-0.5 text-xs font-medium leading-tight max-w-full",
         resolveOptionColor(value, explicit),
         className,
       )}

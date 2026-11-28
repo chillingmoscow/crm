@@ -88,7 +88,7 @@ export async function loadScheduleImage(
     first_name: string | null;
     last_name: string | null;
   }[];
-  const casual = ((ok(options, "разовых сотрудников") as { employees?: { id: string; name: string }[] } | null)
+  const casual = ((ok(options, "подменных сотрудников") as { employees?: { id: string; name: string }[] } | null)
     ?.employees ?? []);
   return buildScheduleImage({
     venueName: venueRow.name,

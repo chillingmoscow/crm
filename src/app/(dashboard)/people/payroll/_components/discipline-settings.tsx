@@ -294,7 +294,7 @@ export function DisciplineSettings() {
           </div>
           <p className="mt-4 text-xs text-muted-foreground">
             Сравниваем начало в графике и отметку Quick Resto. Длительность
-            смены не учитывается. Для разовых сотрудников штраф по QR-отметкам
+            смены не учитывается. Для подменных сотрудников штраф по QR-отметкам
             не начисляется.
           </p>
         </section>

@@ -2,6 +2,7 @@ import type { LooseDb } from "../supabase/loose.ts";
 import type { TelegramBot } from "../integrations/telegram-bot.ts";
 import { chatsForRole, type ChatRow } from "../integrations/telegram-membership.ts";
 import { buildInviteMessage, MESSAGE_MARKER, type InviteLink } from "./chat-invites-message.ts";
+import { normalizeTelegramId } from "./telegram-id.ts";
 
 type Journal = { chat_id: string; result: string; detail: string | null };
 
@@ -51,6 +52,14 @@ export async function runChatInvites(db: LooseDb, bot: TelegramBot | null, { acc
     roleName = inAccount ? role.data?.name ?? null : null;
   }
 
+  // A person banned in a chat cannot join by any invite: Telegram answers "the link has expired".
+  // Bans are left by the old Glide/n8n dismissals and by hand, so lift them first (only_if_banned:
+  // a member or a stranger is not touched). Without a Telegram ID there is nobody to unban.
+  const profile = await db.from<{ telegram_id: string | null }>("profiles").select("telegram_id").eq("id", userId).maybeSingle();
+  if (profile.error) throw new Error(profile.error.message);
+  const telegramId = normalizeTelegramId(profile.data?.telegram_id);
+  const telegramUserId = telegramId && /^\d{1,15}$/.test(telegramId) ? Number(telegramId) : null;
+
   const links: InviteLink[] = [];
   const failures: Array<{ title: string; detail: string }> = [];
   for (const chat of chats) {
@@ -58,6 +67,10 @@ export async function runChatInvites(db: LooseDb, bot: TelegramBot | null, { acc
     const existing = prior.get(chat.chat_id);
     if (existing?.result === "invited" && existing.detail) { links.push({ title, url: existing.detail }); continue; }
     try {
+      if (telegramUserId !== null) {
+        const unban = await bot.unbanChatMember(chat.chat_id, telegramUserId);
+        if (!unban.ok) throw new Error(`Не удалось снять блокировку в чате: ${unban.description ?? "Telegram не ответил"}`);
+      }
       const res = await bot.createChatInviteLink(chat.chat_id, name);
       const url = res.result?.invite_link;
       if (!res.ok || !url) throw new Error(res.description ?? "Telegram не создал ссылку");
@@ -73,7 +86,7 @@ export async function runChatInvites(db: LooseDb, bot: TelegramBot | null, { acc
   if (failures.length && !allowPartial)
     throw new Error(`Не удалось создать приглашения: ${failures.map(f => `${f.title}: ${f.detail}`).join("; ")}`);
 
-  const message = buildInviteMessage(name, roleName, links, failures.map(f => f.title));
+  const message = buildInviteMessage(name, roleName, links, failures.map(f => f.title), { unbanned: telegramUserId !== null });
   const sent = await bot.sendMessage(bot.invitesChatId, message.text, message.buttons);
   if (!sent.ok) throw new Error(sent.description ?? "Telegram не подтвердил отправку приглашений");
   await record(MESSAGE_MARKER, "invited", null);

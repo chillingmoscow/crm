@@ -11,11 +11,9 @@ import { validDate } from "@/lib/sales/time";
 import {
   nativeDayMembers,
   type DayTeam,
-  type DayMember,
   type DayComment,
   type CommentEvent,
   type DayDiscussion,
-  type DayArchive,
 } from "@/lib/sales/day-context";
 import type { Accrual, PayEmployee } from "@/lib/payroll/types";
 async function scope(venueId: string, date: string) {
@@ -35,86 +33,13 @@ async function scope(venueId: string, date: string) {
     throw new Error("Заведение изменилось. Обновите страницу");
   return { db, client, permissions, accountId, user, venueId };
 }
-export async function loadDayArchive(
-  venueId: string,
-  date: string,
-): Promise<DayArchive | null> {
-  const s = await scope(venueId, date);
-  const r = await s.db
-    .from<DayArchive[]>("sales_day_archive")
-    .select(
-      "id,venue_id,business_date,legacy_ref,metrics,captured_at,imported_at,origin",
-    )
-    .eq("account_id", s.accountId)
-    .eq("venue_id", venueId)
-    .eq("business_date", date)
-    .order("captured_at", { ascending: false })
-    .order("id", { ascending: false })
-    .limit(1);
-  if (r.error) throw new Error("Не удалось загрузить архив смены");
-  return r.data?.[0] ?? null;
-}
 async function loadDayTeamImpl(
   venueId: string,
   date: string,
-  source: "native" | "archive",
-  archiveId?: string,
 ): Promise<DayTeam> {
   const s = await scope(venueId, date);
-  z.enum(["native", "archive"]).parse(source);
   if (!s.permissions.includes("payroll.view"))
-    return { allowed: false, source, members: [] };
-  if (source === "archive") {
-    if (!archiveId) throw new Error("Архив общей смены пока не перенесён");
-    z.string().uuid().parse(archiveId);
-    const parent = await s.db
-      .from<DayArchive>("sales_day_archive")
-      .select("id,venue_id,business_date,captured_at")
-      .eq("account_id", s.accountId)
-      .eq("venue_id", venueId)
-      .eq("id", archiveId)
-      .eq("business_date", date)
-      .maybeSingle();
-    if (parent.error || !parent.data) throw new Error("Архив смены недоступен");
-    const rows: DayMember[] = [];
-    for (let start = 0; start < 10000; start += 1000) {
-      const r = await s.db
-        .from<
-          {
-            id: string;
-            name: string;
-            position: string;
-            salary: number | null;
-            tips: number | null;
-            extras: number | null;
-            origin: DayMember["origin"];
-          }[]
-        >("payroll_day_archive_members")
-        .select("id,name,position,salary,tips,extras,origin")
-        .eq("account_id", s.accountId)
-        .eq("venue_id", venueId)
-        .eq("day_archive_id", archiveId)
-        .order("id")
-        .range(start, start + 999);
-      if (r.error) throw new Error("Не удалось загрузить команду смены");
-      rows.push(
-        ...(r.data ?? []).map((m) => ({
-          ...m,
-          role: m.position,
-          issues: [],
-          components: [],
-        })),
-      );
-      if ((r.data ?? []).length < 1000)
-        return {
-          allowed: true,
-          source,
-          members: rows,
-          capturedAt: parent.data.captured_at,
-        };
-    }
-    throw new Error("Не удалось загрузить весь состав смены");
-  }
+    return { allowed: false, members: [] };
   const accruals: Accrual[] = [];
   for (let start = 0; start < 10000; start += 1000) {
     const r = await s.db
@@ -134,7 +59,7 @@ async function loadDayTeamImpl(
       throw new Error("Не удалось загрузить весь расчёт смены");
   }
   const ids = [...new Set(accruals.map((a) => a.employee_id))];
-  if (!ids.length) return { allowed: true, source, members: [] };
+  if (!ids.length) return { allowed: true, members: [] };
   const employees = await s.db
     .from<PayEmployee[]>("payroll_employees")
     .select("id,name,role_name,local_user_id")
@@ -162,7 +87,6 @@ async function loadDayTeamImpl(
   );
   return {
     allowed: true,
-    source,
     members: nativeDayMembers(
       accruals,
       employees.data ?? [],
@@ -266,14 +190,9 @@ async function dayCommentCommandImpl(
 
 // Действия возвращают ошибку текстом, а не исключением: в рабочей сборке Next.js
 // заменяет текст брошенного исключения английской заглушкой (см. lib/actions/result).
-export async function loadDayTeam(
-  venueId: string,
-  date: string,
-  source: "native" | "archive",
-  archiveId?: string,
-) {
+export async function loadDayTeam(venueId: string, date: string) {
   return actionResult(
-    () => loadDayTeamImpl(venueId, date, source, archiveId),
+    () => loadDayTeamImpl(venueId, date),
     "Не удалось загрузить команду",
   );
 }

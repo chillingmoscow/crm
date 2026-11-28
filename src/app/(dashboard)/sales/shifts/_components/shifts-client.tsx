@@ -74,9 +74,7 @@ import {
   salesDayStatus,
   salesStatuses,
 } from "./sales-status-badge";
-import { ArchiveDayDrawer } from "../../_components/archive-day-drawer";
 import { SalesBodySkeleton } from "../../_components/sales-loading";
-import type { DayArchive } from "@/lib/sales/day-context";
 
 /** Подписи столбцов: заголовки таблицы, карточки на телефоне, экспорт. */
 const labels: Record<string, string> = {
@@ -181,12 +179,10 @@ function sumMetric(days: SalesDay[], key: MetricKey) {
 export function ShiftsClient({
   initial,
   selection,
-  selectedArchive,
 }: {
   /** Смены одного месяца (`initial.month`): из ссылки или текущий. */
   initial: SalesData;
-  selection?: { date: string; tab: string; source: "native" | "archive" };
-  selectedArchive?: DayArchive | null;
+  selection?: { date: string; tab: string };
 }) {
   const router = useRouter();
   const [data, setData] = useState(initial);
@@ -213,10 +209,9 @@ export function ShiftsClient({
   const [loading, setLoading] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [status, setStatus] = useState("");
-  // Смена открывается экраном во всю колонку (`drawer`), архивный день Glide —
-  // панелью; её держим смонтированной, пока она уезжает (docs/motion.md):
-  // `shownArchive` — последнее открытое значение. `n` — номер открытия:
-  // каждое открытие начинается с чистой формы, даже если это тот же день.
+  // Смена открывается экраном во всю колонку (`drawer`). `n` — номер
+  // открытия: каждое открытие начинается с чистой формы, даже если это тот
+  // же день.
   const openCount = useRef(0);
   const [drawer, setDrawerState] = useState<{ day: SalesDay; tab: string; n: number } | null>(
     null,
@@ -226,25 +221,10 @@ export function ShiftsClient({
       setDrawerState(next && { ...next, n: ++openCount.current }),
     [],
   );
-  const [archiveDrawer, setArchiveDrawerState] = useState<{
-    archive: DayArchive;
-    tab: string;
-    n: number;
-  } | null>(null);
-  const setArchiveDrawer = useCallback(
-    (next: { archive: DayArchive; tab: string } | null) =>
-      setArchiveDrawerState(next && { ...next, n: ++openCount.current }),
-    [],
-  );
-  const [shownArchive, setShownArchive] = useState(archiveDrawer);
-  useEffect(() => {
-    if (archiveDrawer) setShownArchive(archiveDrawer);
-  }, [archiveDrawer]);
-  const archiveDay = archiveDrawer ?? shownArchive;
 
   // Ссылка на день (`?day=…&tab=…`) открывает его панель один раз.
   const selectionKey = selection
-    ? `${initial.venueId}:${selection.date}:${selection.tab}:${selection.source}`
+    ? `${initial.venueId}:${selection.date}:${selection.tab}`
     : "";
   const openedSelection = useRef("");
   useEffect(() => {
@@ -255,17 +235,8 @@ export function ShiftsClient({
     if (openedSelection.current === selectionKey) return;
     openedSelection.current = selectionKey;
     const day = initial.days.find((d) => d.business_date === selection?.date);
-    setDrawer(
-      day && selection?.source !== "archive"
-        ? { day, tab: selection!.tab }
-        : null,
-    );
-    setArchiveDrawer(
-      selectedArchive
-        ? { archive: selectedArchive, tab: selection!.tab }
-        : null,
-    );
-  }, [selectionKey, selection, initial.days, selectedArchive, setDrawer, setArchiveDrawer]);
+    setDrawer(day ? { day, tab: selection!.tab } : null);
+  }, [selectionKey, selection, initial.days, setDrawer]);
 
   const [busy, setBusy] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -971,15 +942,6 @@ export function ShiftsClient({
       )}
       </div>
       </div>
-      {archiveDay && (
-        <ArchiveDayDrawer
-          key={archiveDay.n}
-          open={!!archiveDrawer}
-          archive={archiveDay.archive}
-          tab={archiveDay.tab}
-          onClose={() => setArchiveDrawer(null)}
-        />
-      )}
     </PageFrame>
   );
 }

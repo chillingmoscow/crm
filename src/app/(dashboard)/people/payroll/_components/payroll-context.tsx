@@ -165,7 +165,6 @@ export function PayrollDayPanel({ date }: { date: string }) {
     <div className="space-y-5 pt-4">
       <DayTeamList
         date={date}
-        source="native"
         members={nativeDayMembers(accruals, data.employees).map((m) => ({
           ...m,
           userId: canOpenStaff && m.employeeId ? userIds.get(m.employeeId) : undefined,

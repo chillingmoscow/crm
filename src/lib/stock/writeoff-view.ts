@@ -1,8 +1,4 @@
-import {
-  writeoffKindLabels,
-  type StoredWriteoff,
-  type WriteoffArchive,
-} from "./writeoffs";
+import { writeoffKindLabels, type StoredWriteoff } from "./writeoffs";
 import { writeoffCounts, type WriteoffPoolAssignment } from "./writeoff-pools";
 export type WriteoffPoolFilter =
   | "all"
@@ -29,71 +25,37 @@ export type WriteoffRow = WriteoffPoolView & {
   quantity: string | null;
   total: number | null;
   issues: string[];
-  native?: StoredWriteoff;
-  archive?: WriteoffArchive;
+  native: StoredWriteoff;
 };
 export function writeoffRows(
   documents: StoredWriteoff[],
-  archives: WriteoffArchive[],
-  source: "native" | "archive",
   poolOf?: (d: StoredWriteoff) => WriteoffPoolView,
 ): WriteoffRow[] {
-  if (source === "native")
-    return documents
-      .map((d) => ({
-        id: d.id,
-        date: d.business_date,
-        name: d.payload.number,
-        correspondent:
-          d.payload.operatorName ?? writeoffKindLabels[d.payload.kind],
-        kind: writeoffKindLabels[d.payload.kind],
-        status: d.missing_at
-          ? "Нет в источнике"
-          : d.payload.processed
-            ? "Проведён"
-            : "Черновик",
-        reason: d.payload.reason ?? "—",
-        store: d.payload.storeName,
-        quantity: null,
-        total: d.payload.total,
-        issues: d.payload.issues,
-        native: d,
-        ...(poolOf?.(d) ?? { pool: "—", poolState: "none" as const }),
-      }))
-      .sort((a, b) => b.date.localeCompare(a.date) || a.id.localeCompare(b.id));
-  const latest = new Map<string, WriteoffArchive>();
-  for (const r of archives) {
-    const old = latest.get(r.legacy_ref);
-    if (
-      !old ||
-      r.captured_at > old.captured_at ||
-      (r.captured_at === old.captured_at && r.id > old.id)
-    )
-      latest.set(r.legacy_ref, r);
-  }
-  return [...latest.values()]
-    .map((a) => ({
-      id: a.id,
-      date: a.business_date,
-      name: a.name,
-      correspondent: a.correspondent,
-      kind: a.kind,
-      status: a.deleted ? "Удалено" : "Архив",
-      reason: a.category ?? "—",
-      store: "—",
-      quantity: a.quantity,
-      total: a.total,
-      issues: a.issues,
-      archive: a,
-      pool: "—",
-      poolState: "none" as const,
+  return documents
+    .map((d) => ({
+      id: d.id,
+      date: d.business_date,
+      name: d.payload.number,
+      correspondent:
+        d.payload.operatorName ?? writeoffKindLabels[d.payload.kind],
+      kind: writeoffKindLabels[d.payload.kind],
+      status: d.missing_at
+        ? "Нет в источнике"
+        : d.payload.processed
+          ? "Проведён"
+          : "Черновик",
+      reason: d.payload.reason ?? "—",
+      store: d.payload.storeName,
+      quantity: null,
+      total: d.payload.total,
+      issues: d.payload.issues,
+      native: d,
+      ...(poolOf?.(d) ?? { pool: "—", poolState: "none" as const }),
     }))
     .sort((a, b) => b.date.localeCompare(a.date) || a.id.localeCompare(b.id));
 }
 export function writeoffTotal(rows: WriteoffRow[]) {
-  const counted = rows.filter((r) =>
-    r.native ? writeoffCounts(r.native) : !r.archive?.deleted,
-  );
+  const counted = rows.filter((r) => writeoffCounts(r.native));
   const known = counted.flatMap((r) => (r.total === null ? [] : [r.total]));
   return {
     value: known.length

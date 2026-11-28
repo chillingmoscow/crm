@@ -1,6 +1,11 @@
-/** Название страницы для уведомления: до 28 знаков, дальше «…» — чтобы
- *  уведомление с кнопкой «Отменить» помещалось в одну строку. */
+/** Название страницы для уведомления: до 20 знаков, дальше «…» — чтобы
+ *  «„…“ в корзине» с кнопкой «Отменить» помещалось в одну строку тоста
+ *  (356px: на текст остаётся ≈ 235px при 13px / 500). Считаем по символам
+ *  (Array.from), а не по UTF-16: эмодзи на границе не разрезается. */
+export const KB_TOAST_TITLE_MAX = 20;
+
 export function kbToastTitle(title: string): string {
-  const t = title.trim();
-  return t.length > 28 ? `${t.slice(0, 27).trimEnd()}…` : t;
+  const chars = Array.from(title.trim());
+  if (chars.length <= KB_TOAST_TITLE_MAX) return chars.join("");
+  return `${chars.slice(0, KB_TOAST_TITLE_MAX - 1).join("").trimEnd()}…`;
 }

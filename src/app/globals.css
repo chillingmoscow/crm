@@ -750,24 +750,35 @@ input:-webkit-autofill {
   padding-top: 13px;
   transform: translateX(-14px);
 }
-/* H1/H2/H3 имеют heading-padding 22px (см. правило выше) — копируем
-   эту цифру в side-menu, плюс небольшой visual offset чтобы кнопки
-   стояли по центру первой строки заголовка, а не к её верху. */
-/* Пункты списков: сверху 2px → центр строки на 15.6px, кнопке ≈ 6px. */
+/* Пункты списков: сверху 2px → центр строки на 15.6px, кнопке ≈ 6px.
+   Переключаемый список (toggle) этого отступа не получает — у него 9px,
+   как у абзаца. */
 .bn-sheerly .bn-side-menu[data-block-type="bulletListItem"],
 .bn-sheerly .bn-side-menu[data-block-type="numberedListItem"],
-.bn-sheerly .bn-side-menu[data-block-type="checkListItem"],
-.bn-sheerly .bn-side-menu[data-block-type="toggleListItem"] {
+.bn-sheerly .bn-side-menu[data-block-type="checkListItem"] {
   padding-top: 6px;
 }
+/* Заголовки: сверху 22px, строка --level × 1.7 → 22 + строка / 2 − 10. */
 .bn-sheerly .bn-side-menu[data-block-type="heading"][data-level="1"] {
-  padding-top: 32px;
+  padding-top: 36px;
 }
 .bn-sheerly .bn-side-menu[data-block-type="heading"][data-level="2"] {
   padding-top: 29px;
 }
 .bn-sheerly .bn-side-menu[data-block-type="heading"][data-level="3"] {
   padding-top: 26px;
+}
+/* Блоки со своим внутренним отступом — по первой строке текста внутри:
+   выноска (py-3, строка ≈ 26px) — центр ≈ 34px; таблица (обёртка 9px +
+   ячейка 5px) — ≈ 37px; код (поле 24px сверху у pre) — ≈ 46px. */
+.bn-sheerly .bn-side-menu[data-block-type="callout"] {
+  padding-top: 24px;
+}
+.bn-sheerly .bn-side-menu[data-block-type="table"] {
+  padding-top: 27px;
+}
+.bn-sheerly .bn-side-menu[data-block-type="codeBlock"] {
+  padding-top: 36px;
 }
 
 /* «+» и ручка — одинаковые: 20px, значок 16px серым, при наведении

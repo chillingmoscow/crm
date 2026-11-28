@@ -109,7 +109,7 @@ export function RoleKpiTerms({ roleId, roleName }: { roleId: string; roleName: s
   const doneItems = draft.filter((d) => d.type === "done");
   return (
     <>
-      <div className={s.section}><h3>KPI за месяц</h3><span>Итоги подводятся 1-го числа за прошлый месяц</span></div>
+      <div className={s.section}><h3>KPI за месяц</h3><span>Итоги отмечают в течение месяца, план засчитывается после его конца</span></div>
       <div className={s.card}>
         <CompensationRow
           title="KPI"

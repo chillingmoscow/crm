@@ -22,46 +22,15 @@
 import { createClient } from "@/lib/supabase/client";
 import { extractMentionedUserIds } from "@/lib/knowledge/mention-extract";
 import type { KbBlock } from "@/types/knowledge";
-import type { Database, Json } from "@/types/database";
+import type { Json } from "@/types/database";
 
-type PageCommentRpcRow =
-  Database["public"]["Functions"]["kb_list_page_comments"]["Returns"][number];
+import {
+  rowToComment,
+  type PageComment,
+  type PageCommentRpcRow,
+} from "@/lib/knowledge/page-comments-model";
 
-export interface PageComment {
-  id: string;
-  threadId: string;
-  body: unknown[]; // BlockNote CommentBody = массив блоков
-  authorId: string;
-  /** {emoji: userId[]} — формат kb_comments.reactions jsonb. */
-  reactions: Record<string, string[]>;
-  createdAt: string;
-  updatedAt: string;
-  deletedAt: string | null;
-}
-
-function rowToComment(row: PageCommentRpcRow): PageComment {
-  return {
-    id: row.id,
-    threadId: row.thread_id,
-    body: Array.isArray(row.body) ? (row.body as unknown[]) : [],
-    authorId: row.author_id,
-    reactions: parseReactions(row.reactions),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    deletedAt: row.deleted_at,
-  };
-}
-
-function parseReactions(value: unknown): Record<string, string[]> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-  const out: Record<string, string[]> = {};
-  for (const [emoji, userIds] of Object.entries(value as Record<string, unknown>)) {
-    if (Array.isArray(userIds)) {
-      out[emoji] = userIds.filter((u): u is string => typeof u === "string");
-    }
-  }
-  return out;
-}
+export type { PageComment };
 
 /** Загрузить все page-level comments одной страницы одним RPC. */
 export async function fetchPageComments(pageId: string): Promise<PageComment[]> {
